@@ -13,9 +13,6 @@ serve(async (req) => {
   }
 
   try {
-    const apiKey = Deno.env.get("SUPERFRETE_API_KEY");
-    if (!apiKey) throw new Error("Missing SUPERFRETE_API_KEY");
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -32,71 +29,105 @@ serve(async (req) => {
 
     if (pedidoError || !pedido) throw new Error("Pedido not found");
 
-    const trackingCode = pedido.rastreio_codigo;
     const superfreteOrderId = pedido.superfrete_order_id;
+    const trackingCode = pedido.rastreio_codigo;
 
-    if (!superfreteOrderId) {
+    let trackingData: any = null;
+    let source = "";
+
+    // Strategy 1: SuperFrete (if we have a superfrete_order_id)
+    if (superfreteOrderId) {
+      const apiKey = Deno.env.get("SUPERFRETE_API_KEY");
+      if (!apiKey) throw new Error("Missing SUPERFRETE_API_KEY");
+
+      const res = await fetch(`https://api.superfrete.com/api/v0/order/info/${superfreteOrderId}`, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "User-Agent": "Djaleco App (contato@djaleco.com)",
+          Accept: "application/json",
+        },
+      });
+
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json") && res.ok) {
+        trackingData = await res.json();
+        source = "superfrete";
+      } else {
+        console.warn(`SuperFrete failed (status ${res.status}), falling back to Link & Track`);
+      }
+    }
+
+    // Strategy 2: Link & Track fallback (if we have a tracking code)
+    if (!trackingData && trackingCode) {
+      const ltUser = Deno.env.get("LINKETRACK_USER");
+      const ltToken = Deno.env.get("LINKETRACK_TOKEN");
+
+      if (!ltUser || !ltToken) {
+        return new Response(
+          JSON.stringify({ error: "Credenciais Link & Track não configuradas. Adicione LINKETRACK_USER e LINKETRACK_TOKEN nos secrets." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const ltUrl = `https://api.linketrack.com/track/json?user=${encodeURIComponent(ltUser)}&token=${encodeURIComponent(ltToken)}&codigo=${encodeURIComponent(trackingCode)}`;
+      const ltRes = await fetch(ltUrl);
+
+      if (ltRes.ok) {
+        const ltData = await ltRes.json();
+        trackingData = ltData;
+        source = "linketrack";
+      } else {
+        const errText = await ltRes.text();
+        console.error(`Link & Track error ${ltRes.status}: ${errText}`);
+        return new Response(
+          JSON.stringify({ error: `Erro ao consultar Link & Track: ${ltRes.status}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    if (!trackingData) {
       return new Response(
-        JSON.stringify({ error: "Este pedido não possui etiqueta SuperFrete. O rastreio automático só funciona para envios gerados via SuperFrete." }),
+        JSON.stringify({ error: "Este pedido não possui etiqueta SuperFrete nem código de rastreio para consultar." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Query SuperFrete order info endpoint
-    let trackingData: any = null;
-
-    const res = await fetch(`https://api.superfrete.com/api/v0/order/info/${superfreteOrderId}`, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "User-Agent": "Djaleco App (contato@djaleco.com)",
-        Accept: "application/json",
-      },
-    });
-
-    const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      const text = await res.text();
-      console.error(`SuperFrete returned non-JSON. Status: ${res.status}. Content-Type: ${contentType}. Preview: ${text.substring(0, 200)}`);
-      return new Response(
-        JSON.stringify({ error: "SuperFrete retornou resposta inválida. Verifique se a API Key está correta." }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (!res.ok) {
-      const errorBody = await res.json();
-      console.error(`SuperFrete API error ${res.status}:`, JSON.stringify(errorBody));
-      return new Response(
-        JSON.stringify({ error: `Erro SuperFrete: ${res.status}`, details: errorBody }),
-        { status: res.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    trackingData = await res.json();
-
-    // Extract updates from response
+    // Extract updates
     const updates: Record<string, any> = {};
 
-    if (trackingData) {
-      // Update tracking code if available
+    if (source === "superfrete") {
       if (trackingData.tracking && !pedido.rastreio_codigo) {
         updates.rastreio_codigo = trackingData.tracking;
       }
-
-      // Check status
       const status = (trackingData.status || "").toLowerCase();
-      const delivered = status === "delivered";
-
-      if (delivered) {
+      if (status === "delivered") {
         updates.etapa_producao = "Entregue";
         updates.data_entrega = trackingData.updated_at ? new Date(trackingData.updated_at).toISOString() : new Date().toISOString();
-      } else if (status === "posted" && pedido.rastreio_codigo) {
-        // Mark as dispatched if posted
-        if (!updates.rastreio_codigo) updates.rastreio_codigo = trackingData.tracking;
+      }
+    } else if (source === "linketrack") {
+      // Link & Track returns { codigo, servico, eventos: [{ data, hora, local, status, subStatus }] }
+      const eventos = trackingData.eventos || [];
+      if (eventos.length > 0) {
+        const ultimo = eventos[0]; // most recent event
+        const statusText = (ultimo.status || "").toLowerCase();
+
+        // Check if delivered
+        if (statusText.includes("entregue") || statusText.includes("objeto entregue")) {
+          updates.etapa_producao = "Entregue";
+          // Parse date from "dd/mm/yyyy" and hora "hh:mm"
+          try {
+            const [day, month, year] = (ultimo.data || "").split("/");
+            const [hour, minute] = (ultimo.hora || "00:00").split(":");
+            updates.data_entrega = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)).toISOString();
+          } catch {
+            updates.data_entrega = new Date().toISOString();
+          }
+        }
       }
     }
 
-    // Update pedido if we have updates
+    // Update pedido if needed
     if (Object.keys(updates).length > 0) {
       const { error: updateError } = await supabase
         .from("pedidos")
@@ -108,6 +139,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
+        source,
         tracking: trackingData,
         updates,
       }),
