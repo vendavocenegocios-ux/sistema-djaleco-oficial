@@ -1,32 +1,32 @@
 
 
-# Plano: Corrigir parsing de itens, numeracao ZAP e filtro de abas
+# Plano: Corrigir status_pagamento dos pedidos existentes
 
-## Problemas
+## Problema raiz
 
-1. **Parsing de itens do WhatsApp cria uma linha por caracteristica** — o split por `,` quebra "Scrub Antonia (Cinza Escuro) M (42)), Scrub Antonia (Vinho) M (42))" incorretamente porque parenteses e virgulas se misturam. Precisa de um parser mais inteligente que entenda que cada item eh `NxProduto (Cor) Tamanho` como uma unidade.
+A coluna `status_pagamento` foi criada com default `'pendente'`. O sync da Nuvemshop inclui a logica correta (`order.payment_status === "paid"` → `"recebido"`), mas a funcao esta morrendo por WORKER_LIMIT antes de completar as atualizacoes. Resultado: todos os 423 pedidos ficam com `"pendente"`.
 
-2. **Numeracao deve ser ZAP, nao WP** — `getNextWPNumber` busca `%-WP` e gera `001-WP`. Trocar para `%-ZAP` e gerar `001-ZAP`.
+## Solucao (2 partes)
 
-3. **Aba Recebidos mostrando pedidos nao pagos** — a logica `isPago` considera pago qualquer pedido com `valor_bruto > 0` e etapa diferente de "Novo"/"Cancelado". Pedidos WhatsApp manuais com etapa "Planejamento" caem como "pagos". Precisa ajustar: pedido so eh "recebido" se `taxa_pagarme > 0` OU se `origem === "whatsapp"` com confirmacao de pagamento (ou outra regra clara).
+### 1. SQL Migration — corrigir dados existentes
 
-## Alteracoes
+Todos os pedidos do site com `valor_bruto > 0` vieram da Nuvemshop e sao pedidos pagos (a Nuvemshop so sincroniza pedidos confirmados/pagos). Rodar:
 
-### 1. `src/hooks/usePedidos.ts` — renomear para ZAP
-- `getNextWPNumber` -> `getNextZAPNumber`
-- Buscar `%-ZAP` e gerar formato `001-ZAP`
+```sql
+UPDATE pedidos SET status_pagamento = 'recebido' 
+WHERE origem = 'site' AND valor_bruto > 0 AND nuvemshop_order_id IS NOT NULL;
+```
 
-### 2. `src/pages/NovoPedido.tsx` — corrigir parsing de itens
-- Melhorar `parseItens`: em vez de split por `,`, usar regex que identifica o padrao `Nx Produto` como delimitador de cada item
-- Cada item no formato WhatsApp eh tipicamente: `1x Scrub Antônia (Cinza Escuro) M (42)`
-- O parser deve capturar `quantidade`, `nome_produto` (incluindo cor e tamanho no nome), e opcionalmente extrair cor e tamanho dos parenteses
-- Atualizar chamada de `getNextWPNumber` para `getNextZAPNumber`
+Isso corrige imediatamente todos os pedidos existentes.
 
-### 3. `src/pages/Pedidos.tsx` — ajustar filtro isPago
-- Tornar mais restritivo: `isPago` retorna true somente se `taxa_pagarme > 0` (confirmacao real de pagamento via gateway). Pedidos manuais (whatsapp) sem taxa ficam em Pendentes ate serem marcados manualmente.
+### 2. Otimizar sync para nao estourar WORKER_LIMIT
 
-### Arquivos
-- `src/hooks/usePedidos.ts` — renomear funcao e pattern ZAP
-- `src/pages/NovoPedido.tsx` — melhorar parser de itens + usar getNextZAPNumber
-- `src/pages/Pedidos.tsx` — ajustar isPago
+Limitar o fetch de pedidos da Nuvemshop aos ultimos 3 meses (em vez de todos os 423+). Isso reduz drasticamente o volume de processamento e evita timeout. Pedidos futuros ja serao inseridos com `status_pagamento` correto pelo sync.
+
+**Arquivo:** `supabase/functions/nuvemshop-sync/index.ts` — adicionar filtro `created_at_min` na chamada da API.
+
+### Resultado esperado
+
+- Aba **Recebidos**: pedidos do site pagos + pedidos WhatsApp marcados manualmente
+- Aba **Pendentes**: pedidos sem confirmacao de pagamento (whatsapp novos, eventuais pedidos site nao pagos)
 
