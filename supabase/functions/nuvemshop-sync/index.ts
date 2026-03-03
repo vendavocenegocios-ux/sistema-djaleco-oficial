@@ -86,11 +86,14 @@ Deno.serve(async (req) => {
 
       const cidadeCliente = order.shipping_address?.city || order.billing_city || null;
       const estadoCliente = order.shipping_address?.province || order.billing_province || null;
+      const enderecoCliente = order.shipping_address?.address || null;
+      const bairroCliente = order.shipping_address?.locality || null;
+      const cepCliente = order.shipping_address?.zipcode || null;
 
       if (!clienteId) {
         const { data: newCliente, error: clienteError } = await supabase
           .from("clientes")
-          .insert({ nome: customerName, telefone: customerPhone, email: customerEmail, documento: customerDoc, cidade: cidadeCliente, estado: estadoCliente, origem: "site" })
+          .insert({ nome: customerName, telefone: customerPhone, email: customerEmail, documento: customerDoc, cidade: cidadeCliente, estado: estadoCliente, endereco: enderecoCliente, bairro: bairroCliente, cep: cepCliente, origem: "site" })
           .select("id").single();
         if (clienteError) { console.error("Error creating cliente:", clienteError); }
         else { clienteId = newCliente.id; syncedClientes++; }
@@ -120,6 +123,9 @@ Deno.serve(async (req) => {
         cliente_telefone: customerPhone,
         cidade: cidadeCliente,
         estado: estadoCliente,
+        endereco: enderecoCliente,
+        bairro: bairroCliente,
+        cep: cepCliente,
         origem: "site",
         data_pedido: order.created_at,
         valor_bruto: valorBruto,

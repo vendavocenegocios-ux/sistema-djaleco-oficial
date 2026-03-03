@@ -16,10 +16,13 @@ export type Database = {
     Tables: {
       clientes: {
         Row: {
+          bairro: string | null
+          cep: string | null
           cidade: string | null
           created_at: string
           documento: string | null
           email: string | null
+          endereco: string | null
           estado: string | null
           id: string
           nome: string
@@ -34,10 +37,13 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          bairro?: string | null
+          cep?: string | null
           cidade?: string | null
           created_at?: string
           documento?: string | null
           email?: string | null
+          endereco?: string | null
           estado?: string | null
           id?: string
           nome: string
@@ -52,10 +58,13 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          bairro?: string | null
+          cep?: string | null
           cidade?: string | null
           created_at?: string
           documento?: string | null
           email?: string | null
+          endereco?: string | null
           estado?: string | null
           id?: string
           nome?: string
@@ -111,6 +120,8 @@ export type Database = {
       }
       pedidos: {
         Row: {
+          bairro: string | null
+          cep: string | null
           cidade: string | null
           cliente_nome: string
           cliente_telefone: string | null
@@ -121,6 +132,7 @@ export type Database = {
           data_despacho: string | null
           data_entrega: string | null
           data_pedido: string
+          endereco: string | null
           estado: string | null
           etapa_entrada_em: string | null
           etapa_producao: string | null
@@ -138,6 +150,8 @@ export type Database = {
           vendedor_id: string | null
         }
         Insert: {
+          bairro?: string | null
+          cep?: string | null
           cidade?: string | null
           cliente_nome?: string
           cliente_telefone?: string | null
@@ -148,6 +162,7 @@ export type Database = {
           data_despacho?: string | null
           data_entrega?: string | null
           data_pedido?: string
+          endereco?: string | null
           estado?: string | null
           etapa_entrada_em?: string | null
           etapa_producao?: string | null
@@ -165,6 +180,8 @@ export type Database = {
           vendedor_id?: string | null
         }
         Update: {
+          bairro?: string | null
+          cep?: string | null
           cidade?: string | null
           cliente_nome?: string
           cliente_telefone?: string | null
@@ -175,6 +192,7 @@ export type Database = {
           data_despacho?: string | null
           data_entrega?: string | null
           data_pedido?: string
+          endereco?: string | null
           estado?: string | null
           etapa_entrada_em?: string | null
           etapa_producao?: string | null

@@ -76,34 +76,41 @@ export default function Pedidos() {
     );
   };
 
+  const formatDoc = (doc: string) => {
+    const d = doc.replace(/\D/g, "");
+    if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+    if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+    return doc;
+  };
+
   const handleCopyWhatsApp = async (p: Pedido) => {
     try {
       const [itensRes, clienteRes] = await Promise.all([
         supabase.from("pedido_itens").select("*").eq("pedido_id", p.id),
-        supabase.from("clientes").select("documento").eq("nome", p.cliente_nome).limit(1),
+        supabase.from("clientes").select("documento, observacoes, endereco, bairro, cep").eq("nome", p.cliente_nome).limit(1),
       ]);
 
       const itens = itensRes.data || [];
-      const documento = clienteRes.data?.[0]?.documento || "";
+      const cliente = clienteRes.data?.[0];
+      const documento = cliente?.documento ? formatDoc(cliente.documento) : "";
+      const profissao = cliente?.observacoes || "";
+      const endereco = (p as any).endereco || cliente?.endereco || "";
+      const bairro = (p as any).bairro || cliente?.bairro || "";
+      const cep = (p as any).cep || cliente?.cep || "";
 
       const pedidoDesc = itens
-        .map((i) => {
-          const parts = [`${i.quantidade}x ${i.nome_produto}`];
-          if (i.tamanho) parts.push(i.tamanho);
-          if (i.cor) parts.push(i.cor);
-          return parts.join(" ");
-        })
+        .map((i) => `${i.quantidade}x ${i.nome_produto}`)
         .join(", ") || "";
 
       const texto = [
         `NOME: ${p.cliente_nome}`,
         `CELULAR: ${p.cliente_telefone || ""}`,
-        `PROFISSÃO:`,
-        `ENDEREÇO COMPLETO:`,
-        `BAIRRO:`,
+        `PROFISSÃO: ${profissao}`,
+        `ENDEREÇO COMPLETO: ${endereco}`,
+        `BAIRRO: ${bairro}`,
         `CIDADE: ${p.cidade || ""}`,
         `ESTADO: ${p.estado || ""}`,
-        `CEP:`,
+        `CEP: ${cep}`,
         `CPF/CNPJ: ${documento}`,
         `DATA DO PEDIDO: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}`,
         `PEDIDO: ${pedidoDesc}`,
