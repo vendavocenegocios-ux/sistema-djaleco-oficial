@@ -8,13 +8,15 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useState } from "react";
 import { format, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
-import { Check, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { Check, Loader2, CalendarIcon, Pencil } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 
 function formatCurrency(v: number) {
@@ -61,7 +63,6 @@ const STATUS_MAP: Record<string, string> = {
   overpaid: "Pago a mais", underpaid: "Pago a menos", processing: "Processando",
 };
 
-// Group charges by paid_at date for deposit reconciliation
 function groupByDeposit(charges: PagarmeCharge[]) {
   const groups: Record<string, PagarmeCharge[]> = {};
   for (const c of charges) {
@@ -92,6 +93,10 @@ export default function Financeiro() {
   const [pgEndDate, setPgEndDate] = useState("");
   const [pgSubTab, setPgSubTab] = useState<"pagos" | "pendentes">("pagos");
 
+  // Comissão inline edit state
+  const [editingComissao, setEditingComissao] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
   const pagarmeParams = pgFilterType === "mes"
     ? { year: pgYear, month: pgMonth }
     : { start_date: pgStartDate, end_date: pgEndDate };
@@ -117,12 +122,30 @@ export default function Financeiro() {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, valor]) => ({ name: format(new Date(month + "-01"), "MMM/yy", { locale: ptBR }), valor }));
 
-  const comissoesPendentes = allPedidos.filter((p) => !p.comissao_paga && Number(p.comissao) > 0);
+  // All pedidos with comissao (not just pending)
+  const comissoesTodas = allPedidos.filter((p) => Number(p.comissao) > 0);
 
-  const handlePagarComissao = (pedidoId: string) => {
+  const handlePagarComissao = (pedidoId: string, date: Date) => {
     updatePedido.mutate(
-      { id: pedidoId, comissao_paga: true, comissao_paga_em: new Date().toISOString() },
+      { id: pedidoId, comissao_paga: true, comissao_paga_em: date.toISOString() },
       { onSuccess: () => toast.success("Comissão marcada como paga!") }
+    );
+  };
+
+  const handleSaveComissao = (pedidoId: string) => {
+    const val = parseFloat(editValue);
+    if (isNaN(val) || val < 0) {
+      toast.error("Valor inválido");
+      return;
+    }
+    updatePedido.mutate(
+      { id: pedidoId, comissao: val },
+      {
+        onSuccess: () => {
+          toast.success("Comissão atualizada!");
+          setEditingComissao(null);
+        },
+      }
     );
   };
 
@@ -134,17 +157,16 @@ export default function Financeiro() {
     { value: "10", label: "Outubro" }, { value: "11", label: "Novembro" }, { value: "12", label: "Dezembro" },
   ];
 
-  // Separate pagarme charges
   const chargesPagos = pagarmeData?.charges?.filter((c) => c.status === "paid") || [];
   const chargesPendentes = pagarmeData?.charges?.filter((c) => c.status !== "paid") || [];
   const depositGroups = groupByDeposit(chargesPagos);
 
   return (
     <AppLayout>
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-foreground">Financeiro</h1>
+      <div className="space-y-4 sm:space-y-6">
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground">Financeiro</h1>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 overflow-x-auto">
           <Button variant={tab === "visao" ? "default" : "outline"} size="sm" onClick={() => setTab("visao")}>Visão Geral</Button>
           <Button variant={tab === "comissoes" ? "default" : "outline"} size="sm" onClick={() => setTab("comissoes")}>Comissões</Button>
           <Button variant={tab === "pagarme" ? "default" : "outline"} size="sm" onClick={() => setTab("pagarme")}>Pagar.me</Button>
@@ -152,27 +174,33 @@ export default function Financeiro() {
 
         {tab === "visao" && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
               {[
-                { label: "Faturamento Bruto", value: totalBruto },
-                { label: "Faturamento Líquido", value: totalLiquido },
-                { label: "Total Frete", value: totalFrete },
-                { label: "Total Taxas", value: totalTaxas },
-                { label: "Total Comissões", value: totalComissoes },
+                { label: "Fat. Bruto", value: totalBruto },
+                { label: "Fat. Líquido", value: totalLiquido },
+                { label: "Frete", value: totalFrete },
+                { label: "Taxas Pagar.me", value: totalTaxas },
+                { label: "Comissões", value: totalComissoes },
               ].map(({ label, value }) => (
                 <Card key={label}>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle></CardHeader>
-                  <CardContent><div className="text-xl font-bold">{formatCurrency(value)}</div></CardContent>
+                  <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
+                    <CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground">{label}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                    <div className="text-base sm:text-xl font-bold">{formatCurrency(value)}</div>
+                  </CardContent>
                 </Card>
               ))}
             </div>
             <Card>
-              <CardHeader><CardTitle className="text-base">Faturamento Mensal</CardTitle></CardHeader>
-              <CardContent className="h-64">
+              <CardHeader className="p-3 sm:p-6 pb-1 sm:pb-2">
+                <CardTitle className="text-sm sm:text-base">Faturamento Mensal</CardTitle>
+              </CardHeader>
+              <CardContent className="h-48 sm:h-64 p-3 sm:p-6 pt-0 sm:pt-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData}>
-                    <XAxis dataKey="name" fontSize={12} />
-                    <YAxis fontSize={12} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
+                    <XAxis dataKey="name" fontSize={10} />
+                    <YAxis fontSize={10} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
                     <Tooltip formatter={(v: number) => formatCurrency(v)} />
                     <Bar dataKey="valor" fill="hsl(350, 45%, 65%)" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -184,16 +212,18 @@ export default function Financeiro() {
 
         {tab === "comissoes" && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {vendedores?.map((v) => {
                 const pedidosVendedor = allPedidos.filter((p) => p.vendedor_id === v.id);
                 const totalCom = pedidosVendedor.reduce((s, p) => s + Number(p.comissao), 0);
                 const pendente = pedidosVendedor.filter((p) => !p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
                 return (
                   <Card key={v.id}>
-                    <CardHeader className="pb-2"><CardTitle className="text-sm">{v.nome} ({v.taxa_comissao}%)</CardTitle></CardHeader>
-                    <CardContent>
-                      <div className="text-sm space-y-1">
+                    <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
+                      <CardTitle className="text-xs sm:text-sm">{v.nome} ({v.taxa_comissao}%)</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                      <div className="text-xs sm:text-sm space-y-1">
                         <p>Total: <span className="font-medium">{formatCurrency(totalCom)}</span></p>
                         <p>Pendente: <span className="font-medium text-destructive">{formatCurrency(pendente)}</span></p>
                       </div>
@@ -203,101 +233,185 @@ export default function Financeiro() {
               })}
             </div>
 
-            <Card className="overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Pedido</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Vendedor</TableHead>
-                    <TableHead className="text-right">Comissão</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {comissoesPendentes.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Todas as comissões estão pagas!</TableCell></TableRow>
-                  ) : (
-                    comissoesPendentes.map((p) => {
-                      const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
-                      return (
-                        <TableRow key={p.id}>
-                          <TableCell className="font-medium">#{p.numero_pedido}</TableCell>
-                          <TableCell>{p.cliente_nome}</TableCell>
-                          <TableCell>{vendedorItem?.nome || "—"}</TableCell>
-                          <TableCell className="text-right font-medium">{formatCurrency(Number(p.comissao))}</TableCell>
-                          <TableCell><Badge variant="destructive" className="text-xs">Pendente</Badge></TableCell>
-                          <TableCell>
-                            <Button size="sm" variant="outline" onClick={() => handlePagarComissao(p.id)}>
-                              <Check className="h-3 w-3 mr-1" />Pagar
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
+            {/* Desktop table */}
+            <Card className="overflow-hidden hidden sm:block">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Pedido</TableHead>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead>Vendedor</TableHead>
+                      <TableHead className="text-right">Comissão</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Data Pagamento</TableHead>
+                      <TableHead></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {comissoesTodas.length === 0 ? (
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
+                    ) : (
+                      comissoesTodas.map((p) => {
+                        const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
+                        const isEditing = editingComissao === p.id;
+                        return (
+                          <TableRow key={p.id}>
+                            <TableCell className="font-medium">#{p.numero_pedido}</TableCell>
+                            <TableCell>{p.cliente_nome}</TableCell>
+                            <TableCell>{vendedorItem?.nome || "—"}</TableCell>
+                            <TableCell className="text-right">
+                              {isEditing ? (
+                                <div className="flex items-center gap-1 justify-end">
+                                  <Input
+                                    type="number"
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    className="w-24 h-7 text-xs"
+                                    onKeyDown={(e) => e.key === "Enter" && handleSaveComissao(p.id)}
+                                    autoFocus
+                                  />
+                                  <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => handleSaveComissao(p.id)}>
+                                    <Check className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1 justify-end">
+                                  <span className="font-medium">{formatCurrency(Number(p.comissao))}</span>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0"
+                                    onClick={() => {
+                                      setEditingComissao(p.id);
+                                      setEditValue(String(Number(p.comissao)));
+                                    }}
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-xs">
+                                {p.comissao_paga ? "Pago" : "Pendente"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {p.comissao_paga_em ? format(new Date(p.comissao_paga_em), "dd/MM/yyyy") : "—"}
+                            </TableCell>
+                            <TableCell>
+                              {!p.comissao_paga && (
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button size="sm" variant="outline" className="h-7 text-xs">
+                                      <CalendarIcon className="h-3 w-3 mr-1" />Pagar
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                      mode="single"
+                                      selected={new Date()}
+                                      onSelect={(d) => d && handlePagarComissao(p.id, d)}
+                                      initialFocus
+                                      className={cn("p-3 pointer-events-auto")}
+                                    />
+                                  </PopoverContent>
+                                </Popover>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </Card>
+
+            {/* Mobile cards */}
+            <div className="sm:hidden space-y-3">
+              {comissoesTodas.map((p) => {
+                const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
+                return (
+                  <Card key={p.id} className="p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm">#{p.numero_pedido}</span>
+                      <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-[10px]">
+                        {p.comissao_paga ? "Pago" : "Pendente"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">{formatCurrency(Number(p.comissao))}</span>
+                      {!p.comissao_paga && (
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handlePagarComissao(p.id, new Date())}>
+                          <Check className="h-3 w-3 mr-1" />Pagar Hoje
+                        </Button>
+                      )}
+                    </div>
+                    {p.comissao_paga_em && (
+                      <p className="text-[10px] text-muted-foreground">Pago em: {format(new Date(p.comissao_paga_em), "dd/MM/yyyy")}</p>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
           </>
         )}
 
         {tab === "pagarme" && (
           <>
-            {/* Filters */}
-            <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-wrap items-end gap-2 sm:gap-3">
               <div className="flex gap-2">
                 <Button variant={pgFilterType === "mes" ? "default" : "outline"} size="sm" onClick={() => setPgFilterType("mes")}>Por Mês</Button>
                 <Button variant={pgFilterType === "custom" ? "default" : "outline"} size="sm" onClick={() => setPgFilterType("custom")}>Personalizado</Button>
               </div>
               {pgFilterType === "mes" ? (
-                <>
+                <div className="flex gap-2">
                   <Select value={pgYear} onValueChange={setPgYear}>
-                    <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-24 sm:w-28"><SelectValue /></SelectTrigger>
                     <SelectContent>{years.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
                   </Select>
                   <Select value={pgMonth} onValueChange={setPgMonth}>
-                    <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-28 sm:w-36"><SelectValue /></SelectTrigger>
                     <SelectContent>{months.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
                   </Select>
-                </>
+                </div>
               ) : (
-                <>
-                  <Input type="date" value={pgStartDate} onChange={(e) => setPgStartDate(e.target.value)} className="w-40" />
-                  <span className="text-muted-foreground">até</span>
-                  <Input type="date" value={pgEndDate} onChange={(e) => setPgEndDate(e.target.value)} className="w-40" />
-                </>
+                <div className="flex items-center gap-2">
+                  <Input type="date" value={pgStartDate} onChange={(e) => setPgStartDate(e.target.value)} className="w-36 sm:w-40" />
+                  <span className="text-muted-foreground text-sm">até</span>
+                  <Input type="date" value={pgEndDate} onChange={(e) => setPgEndDate(e.target.value)} className="w-36 sm:w-40" />
+                </div>
               )}
             </div>
 
-            {/* Summary cards */}
             {pagarmeData?.summary && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Transações</CardTitle></CardHeader>
-                  <CardContent><div className="text-xl font-bold">{pagarmeData.summary.count}</div></CardContent>
+                  <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2"><CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground">Transações</CardTitle></CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0"><div className="text-base sm:text-xl font-bold">{pagarmeData.summary.count}</div></CardContent>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Valor Bruto</CardTitle></CardHeader>
-                  <CardContent><div className="text-xl font-bold">{formatCurrency(pagarmeData.summary.total_bruto)}</div></CardContent>
+                  <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2"><CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground">Valor Bruto</CardTitle></CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0"><div className="text-base sm:text-xl font-bold">{formatCurrency(pagarmeData.summary.total_bruto)}</div></CardContent>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Taxas Pagar.me</CardTitle></CardHeader>
-                  <CardContent><div className="text-xl font-bold text-destructive">{formatCurrency(pagarmeData.summary.total_taxas)}</div></CardContent>
+                  <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2"><CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground">Taxas Pagar.me</CardTitle></CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0"><div className="text-base sm:text-xl font-bold text-destructive">{formatCurrency(pagarmeData.summary.total_taxas)}</div></CardContent>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Valor Líquido</CardTitle></CardHeader>
-                  <CardContent><div className="text-xl font-bold text-primary">{formatCurrency(pagarmeData.summary.total_liquido)}</div></CardContent>
+                  <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2"><CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground">Valor Líquido</CardTitle></CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0"><div className="text-base sm:text-xl font-bold text-primary">{formatCurrency(pagarmeData.summary.total_liquido)}</div></CardContent>
                 </Card>
               </div>
             )}
 
-            {/* Sub-tabs: Pagos / Pendentes */}
             <Tabs value={pgSubTab} onValueChange={(v) => setPgSubTab(v as "pagos" | "pendentes")}>
-              <TabsList>
-                <TabsTrigger value="pagos">Pagos ({chargesPagos.length})</TabsTrigger>
-                <TabsTrigger value="pendentes">Pendentes ({chargesPendentes.length})</TabsTrigger>
+              <TabsList className="w-full sm:w-auto">
+                <TabsTrigger value="pagos" className="flex-1 sm:flex-none">Pagos ({chargesPagos.length})</TabsTrigger>
+                <TabsTrigger value="pendentes" className="flex-1 sm:flex-none">Pendentes ({chargesPendentes.length})</TabsTrigger>
               </TabsList>
 
               <TabsContent value="pagos" className="mt-4">
@@ -315,39 +429,57 @@ export default function Financeiro() {
                       const totalTaxaGrupo = charges.reduce((s, c) => s + c.gateway_fee, 0);
                       return (
                         <Card key={depositDate} className="overflow-hidden">
-                          <CardHeader className="pb-2 bg-muted/30">
-                            <div className="flex items-center justify-between">
-                              <CardTitle className="text-sm">Depósito: {depositDate}</CardTitle>
-                              <div className="flex gap-4 text-xs">
+                          <CardHeader className="pb-2 bg-muted/30 p-3 sm:p-6 sm:pb-2">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                              <CardTitle className="text-xs sm:text-sm">Depósito: {depositDate}</CardTitle>
+                              <div className="flex gap-3 text-[10px] sm:text-xs">
                                 <span>Líquido: <strong>{formatCurrency(totalGrupo)}</strong></span>
                                 <span className="text-destructive">Taxas: {formatCurrency(totalTaxaGrupo)}</span>
                               </div>
                             </div>
                           </CardHeader>
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Pedido</TableHead>
-                                <TableHead>Método</TableHead>
-                                <TableHead>Parcelas</TableHead>
-                                <TableHead className="text-right">Bruto</TableHead>
-                                <TableHead className="text-right">Taxa</TableHead>
-                                <TableHead className="text-right">Líquido</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {charges.map((c) => (
-                                <TableRow key={c.id}>
-                                  <TableCell className="font-medium">{c.order_code || "—"}</TableCell>
-                                  <TableCell className="text-sm capitalize">{c.payment_method}</TableCell>
-                                  <TableCell className="text-sm">{c.installments}x</TableCell>
-                                  <TableCell className="text-right text-sm">{formatCurrency(c.amount)}</TableCell>
-                                  <TableCell className="text-right text-sm text-destructive">{formatCurrency(c.gateway_fee)}</TableCell>
-                                  <TableCell className="text-right text-sm font-medium">{formatCurrency(c.paid_amount)}</TableCell>
+                          {/* Desktop */}
+                          <div className="hidden sm:block overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Pedido</TableHead>
+                                  <TableHead>Método</TableHead>
+                                  <TableHead>Parcelas</TableHead>
+                                  <TableHead className="text-right">Bruto</TableHead>
+                                  <TableHead className="text-right">Taxa</TableHead>
+                                  <TableHead className="text-right">Líquido</TableHead>
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+                              </TableHeader>
+                              <TableBody>
+                                {charges.map((c) => (
+                                  <TableRow key={c.id}>
+                                    <TableCell className="font-medium">{c.order_code || "—"}</TableCell>
+                                    <TableCell className="text-sm capitalize">{c.payment_method}</TableCell>
+                                    <TableCell className="text-sm">{c.installments}x</TableCell>
+                                    <TableCell className="text-right text-sm">{formatCurrency(c.amount)}</TableCell>
+                                    <TableCell className="text-right text-sm text-destructive">{formatCurrency(c.gateway_fee)}</TableCell>
+                                    <TableCell className="text-right text-sm font-medium">{formatCurrency(c.paid_amount)}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                          {/* Mobile */}
+                          <div className="sm:hidden p-2 space-y-2">
+                            {charges.map((c) => (
+                              <div key={c.id} className="flex items-center justify-between p-2 rounded bg-muted/20 text-xs">
+                                <div>
+                                  <p className="font-medium">{c.order_code || "—"}</p>
+                                  <p className="text-muted-foreground capitalize">{c.payment_method} · {c.installments}x</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-medium">{formatCurrency(c.paid_amount)}</p>
+                                  <p className="text-destructive text-[10px]">-{formatCurrency(c.gateway_fee)}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </Card>
                       );
                     })}
@@ -361,38 +493,63 @@ export default function Financeiro() {
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
                 ) : (
-                  <Card className="overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Data</TableHead>
-                          <TableHead>Pedido</TableHead>
-                          <TableHead>Método</TableHead>
-                          <TableHead className="text-right">Bruto</TableHead>
-                          <TableHead className="text-right">Taxa</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {chargesPendentes.length === 0 ? (
-                          <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhuma transação pendente</TableCell></TableRow>
-                        ) : (
-                          chargesPendentes.map((c) => (
-                            <TableRow key={c.id}>
-                              <TableCell className="text-sm">{c.created_at ? format(new Date(c.created_at), "dd/MM/yyyy") : "—"}</TableCell>
-                              <TableCell className="font-medium">{c.order_code || "—"}</TableCell>
-                              <TableCell className="text-sm capitalize">{c.payment_method}</TableCell>
-                              <TableCell className="text-right text-sm">{formatCurrency(c.amount)}</TableCell>
-                              <TableCell className="text-right text-sm text-destructive">{formatCurrency(c.gateway_fee)}</TableCell>
-                              <TableCell>
-                                <Badge variant="secondary" className="text-xs">{STATUS_MAP[c.status] || c.status}</Badge>
-                              </TableCell>
+                  <>
+                    {/* Desktop */}
+                    <Card className="overflow-hidden hidden sm:block">
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Data</TableHead>
+                              <TableHead>Pedido</TableHead>
+                              <TableHead>Método</TableHead>
+                              <TableHead className="text-right">Bruto</TableHead>
+                              <TableHead className="text-right">Taxa</TableHead>
+                              <TableHead>Status</TableHead>
                             </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </Card>
+                          </TableHeader>
+                          <TableBody>
+                            {chargesPendentes.length === 0 ? (
+                              <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhuma transação pendente</TableCell></TableRow>
+                            ) : (
+                              chargesPendentes.map((c) => (
+                                <TableRow key={c.id}>
+                                  <TableCell className="text-sm">{c.created_at ? format(new Date(c.created_at), "dd/MM/yyyy") : "—"}</TableCell>
+                                  <TableCell className="font-medium">{c.order_code || "—"}</TableCell>
+                                  <TableCell className="text-sm capitalize">{c.payment_method}</TableCell>
+                                  <TableCell className="text-right text-sm">{formatCurrency(c.amount)}</TableCell>
+                                  <TableCell className="text-right text-sm text-destructive">{formatCurrency(c.gateway_fee)}</TableCell>
+                                  <TableCell>
+                                    <Badge variant="secondary" className="text-xs">{STATUS_MAP[c.status] || c.status}</Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </Card>
+
+                    {/* Mobile */}
+                    <div className="sm:hidden space-y-2">
+                      {chargesPendentes.length === 0 ? (
+                        <p className="text-center py-8 text-muted-foreground text-sm">Nenhuma transação pendente</p>
+                      ) : (
+                        chargesPendentes.map((c) => (
+                          <Card key={c.id} className="p-3">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-sm">{c.order_code || "—"}</span>
+                              <Badge variant="secondary" className="text-[10px]">{STATUS_MAP[c.status] || c.status}</Badge>
+                            </div>
+                            <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
+                              <span className="capitalize">{c.payment_method}</span>
+                              <span>{formatCurrency(c.amount)}</span>
+                            </div>
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  </>
                 )}
               </TabsContent>
             </Tabs>

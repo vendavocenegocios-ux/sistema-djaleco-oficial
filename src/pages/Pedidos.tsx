@@ -65,76 +65,117 @@ export default function Pedidos() {
   const pagos = filtered?.filter((p) => isPago(p)) || [];
   const pendentes = filtered?.filter((p) => !isPago(p)) || [];
 
-  const renderTable = (items: typeof pagos) => (
-    <Card className="overflow-hidden">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Nº Pedido</TableHead>
-            <TableHead>Cliente</TableHead>
-            <TableHead>Valor Bruto</TableHead>
-            <TableHead>Origem</TableHead>
-            <TableHead>Etapa</TableHead>
-            <TableHead>Data</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {isLoading ? (
-            <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
-          ) : items.length === 0 ? (
-            <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum pedido encontrado</TableCell></TableRow>
-          ) : (
-            items.map((p) => (
-              <TableRow key={p.id}>
-                <TableCell>
-                  <Link to={`/pedidos/${p.id}`} className="font-medium text-primary hover:underline">
-                    #{p.numero_pedido}
-                  </Link>
-                </TableCell>
-                <TableCell>{p.cliente_nome}</TableCell>
-                <TableCell>{formatCurrency(Number(p.valor_bruto))}</TableCell>
-                <TableCell><Badge variant="outline">{p.origem}</Badge></TableCell>
-                <TableCell>
-                  <Select
-                    value={p.etapa_producao || ""}
-                    onValueChange={(v) => handleEtapaChange(p.id, v)}
-                  >
-                    <SelectTrigger className="w-[140px] h-8 text-xs">
-                      <SelectValue placeholder="Etapa" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ETAPAS.map((e) => (
-                        <SelectItem key={e} value={e}>{e}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-                <TableCell className="text-muted-foreground">{format(new Date(p.data_pedido), "dd/MM/yyyy")}</TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+  // Mobile card view for a pedido
+  const renderMobileCard = (p: typeof pagos[0]) => (
+    <Card key={p.id} className="p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <Link to={`/pedidos/${p.id}`} className="font-medium text-primary hover:underline text-sm">
+          #{p.numero_pedido}
+        </Link>
+        <Badge variant="outline" className="text-[10px]">{p.origem}</Badge>
+      </div>
+      <p className="text-sm truncate">{p.cliente_nome}</p>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">{formatCurrency(Number(p.valor_bruto))}</span>
+        <span className="text-xs text-muted-foreground">{format(new Date(p.data_pedido), "dd/MM/yyyy")}</span>
+      </div>
+      <Select value={p.etapa_producao || ""} onValueChange={(v) => handleEtapaChange(p.id, v)}>
+        <SelectTrigger className="w-full h-8 text-xs">
+          <SelectValue placeholder="Etapa" />
+        </SelectTrigger>
+        <SelectContent>
+          {ETAPAS.map((e) => (
+            <SelectItem key={e} value={e}>{e}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </Card>
+  );
+
+  const renderTable = (items: typeof pagos) => (
+    <>
+      {/* Desktop table */}
+      <Card className="overflow-hidden hidden sm:block">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nº Pedido</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead>Valor Bruto</TableHead>
+                <TableHead>Origem</TableHead>
+                <TableHead>Etapa</TableHead>
+                <TableHead>Data</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
+              ) : items.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum pedido encontrado</TableCell></TableRow>
+              ) : (
+                items.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell>
+                      <Link to={`/pedidos/${p.id}`} className="font-medium text-primary hover:underline">
+                        #{p.numero_pedido}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{p.cliente_nome}</TableCell>
+                    <TableCell>{formatCurrency(Number(p.valor_bruto))}</TableCell>
+                    <TableCell><Badge variant="outline">{p.origem}</Badge></TableCell>
+                    <TableCell>
+                      <Select value={p.etapa_producao || ""} onValueChange={(v) => handleEtapaChange(p.id, v)}>
+                        <SelectTrigger className="w-[140px] h-8 text-xs">
+                          <SelectValue placeholder="Etapa" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ETAPAS.map((e) => (
+                            <SelectItem key={e} value={e}>{e}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{format(new Date(p.data_pedido), "dd/MM/yyyy")}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+
+      {/* Mobile cards */}
+      <div className="sm:hidden space-y-3">
+        {isLoading ? (
+          <p className="text-center py-8 text-muted-foreground">Carregando...</p>
+        ) : items.length === 0 ? (
+          <p className="text-center py-8 text-muted-foreground">Nenhum pedido encontrado</p>
+        ) : (
+          items.map(renderMobileCard)
+        )}
+      </div>
+    </>
   );
 
   return (
     <AppLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-foreground">Pedidos</h1>
+      <div className="space-y-4 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">Pedidos</h1>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handleSync} disabled={syncing}>
+            <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing} className="flex-1 sm:flex-none">
               <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
-              {syncing ? "Sincronizando..." : "Sync Nuvemshop"}
+              <span className="hidden sm:inline">{syncing ? "Sincronizando..." : "Sync Nuvemshop"}</span>
+              <span className="sm:hidden">{syncing ? "Sync..." : "Sync"}</span>
             </Button>
-            <Button asChild>
-              <Link to="/pedidos/novo"><Plus className="h-4 w-4 mr-2" />Novo Pedido</Link>
+            <Button asChild size="sm" className="flex-1 sm:flex-none">
+              <Link to="/pedidos/novo"><Plus className="h-4 w-4 mr-2" />Novo</Link>
             </Button>
           </div>
         </div>
 
-        <div className="relative max-w-sm">
+        <div className="relative w-full sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Buscar por cliente ou número..."
@@ -145,9 +186,9 @@ export default function Pedidos() {
         </div>
 
         <Tabs defaultValue="pagos">
-          <TabsList>
-            <TabsTrigger value="pagos">Pagos ({pagos.length})</TabsTrigger>
-            <TabsTrigger value="pendentes">Pendentes ({pendentes.length})</TabsTrigger>
+          <TabsList className="w-full sm:w-auto">
+            <TabsTrigger value="pagos" className="flex-1 sm:flex-none">Pagos ({pagos.length})</TabsTrigger>
+            <TabsTrigger value="pendentes" className="flex-1 sm:flex-none">Pendentes ({pendentes.length})</TabsTrigger>
           </TabsList>
           <TabsContent value="pagos" className="mt-4">
             {renderTable(pagos)}
