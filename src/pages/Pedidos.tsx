@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import { Search, Plus, RefreshCw, Copy } from "lucide-react";
+import { Search, Plus, RefreshCw, Copy, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Pedido } from "@/hooks/usePedidos";
@@ -32,6 +32,26 @@ export default function Pedidos() {
   const [syncing, setSyncing] = useState(false);
 
   const [syncingPagarme, setSyncingPagarme] = useState(false);
+  const [syncingTracking, setSyncingTracking] = useState(false);
+
+  const handleBatchTracking = async () => {
+    setSyncingTracking(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("superfrete-tracking", {
+        body: { batch: true },
+      });
+      if (error) throw error;
+      if (data?.success) {
+        toast.success(`Rastreio verificado! ${data.updated} atualizados, ${data.checked} sem novidades, ${data.no_data} sem dados.`);
+      } else {
+        toast.error(data?.error || "Erro ao consultar rastreios");
+      }
+    } catch (e: any) {
+      toast.error("Erro ao consultar rastreios: " + (e.message || "erro"));
+    } finally {
+      setSyncingTracking(false);
+    }
+  };
 
   const handleSync = async () => {
     setSyncing(true);
@@ -245,6 +265,11 @@ export default function Pedidos() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">Pedidos</h1>
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleBatchTracking} disabled={syncingTracking} className="flex-1 sm:flex-none">
+              <Truck className={`h-4 w-4 mr-2 ${syncingTracking ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">{syncingTracking ? "Consultando..." : "Rastreios"}</span>
+              <span className="sm:hidden">{syncingTracking ? "..." : "Rastreios"}</span>
+            </Button>
             <Button variant="outline" size="sm" onClick={handleSyncPagarme} disabled={syncingPagarme} className="flex-1 sm:flex-none">
               <RefreshCw className={`h-4 w-4 mr-2 ${syncingPagarme ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">{syncingPagarme ? "Sincronizando..." : "Taxas Pagarme"}</span>
