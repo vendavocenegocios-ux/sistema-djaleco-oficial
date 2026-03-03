@@ -1,117 +1,160 @@
 
-# Plano: Ajustes em Pedidos, Comissoes, Financeiro Pagarme e Logo
+# Plano: Abas de Pagamento, Etapas na Lista, Kanban Detalhado e Logo
 
-## 1. Numeracao de Pedidos WhatsApp
+## 1. Pagina de Pedidos -- Abas Pagos vs Pendentes
 
-Pedidos com `origem = "site"` mantem o numero vindo da Nuvemshop (ex: #1234).
-Pedidos com `origem = "whatsapp"` recebem numeracao automatica no formato `#001-WP`, `#002-WP`, etc.
+Adicionar tabs na pagina `Pedidos.tsx`:
+- **Aba "Pagos"** (principal): mostra apenas pedidos com status pago (filtro por `valor_bruto > 0 AND taxa_pagarme > 0` ou por um campo de status de pagamento)
+- **Aba "Pendentes"**: pedidos nao pagos ou sem confirmacao de pagamento
 
-**Logica**: Ao criar um pedido via WhatsApp, buscar o ultimo numero WP no banco e incrementar.
+Como a tabela `pedidos` nao tem campo de status de pagamento, a logica sera:
+- Pedidos com `nuvemshop_order_id` cujo status na Nuvemshop era "paid"/"closed" sao considerados pagos. O sync ja mapeia isso na etapa de producao.
+- Alternativa mais simples e confiavel: considerar pedidos com `etapa_producao != 'Novo'` e `valor_bruto > 0` como pagos. Pedidos com `etapa_producao = 'Novo'` ou nulo sao pendentes.
 
-Arquivos afetados:
-- `src/hooks/usePedidos.ts` -- adicionar helper para gerar proximo numero WP
-- Formulario de criacao de pedido (quando existir) -- aplicar automaticamente
+**Decisao**: Usar a presenca de `taxa_pagarme > 0` OU `etapa_producao` diferente de "Novo"/"Cancelado" como indicador de pagamento. Cruzar com dados do Pagarme para popular `taxa_pagarme` nos pedidos.
 
----
+### Dropdown de Etapa na Lista
+Na tabela de pedidos, substituir o Badge da etapa por um `Select` dropdown com as etapas: Planejamento, Corte, Costura, Acabamento, Embalagem, Despachado, Entregue. Ao alterar, atualiza `etapa_producao` e `etapa_entrada_em` no banco -- sincronizando automaticamente com o Kanban.
 
-## 2. Comissao Padrao com William Nogueira
-
-No sync da Nuvemshop e na criacao de pedidos do site:
-- Vendedor padrao: **William Nogueira** (id: `97f16c11-121d-47d3-9212-ece04cbcb348`)
-- Formula da comissao: `(valor_bruto - taxa_pagarme - frete) * taxa_comissao / 100`
-- Drop-down no detalhe do pedido para poder trocar o vendedor se necessario
-
-Arquivos afetados:
-- `supabase/functions/nuvemshop-sync/index.ts` -- calcular comissao automaticamente usando William como padrao
-- `supabase/functions/nuvemshop-webhook/index.ts` -- mesmo calculo
-- `src/pages/PedidoDetalhe.tsx` -- adicionar select de vendedor com William como default
+### Etapa "Entregue"
+Adicionar "Entregue" como ultima opcao no dropdown e no Kanban (opcional, so na lista pode ser suficiente).
 
 ---
 
-## 3. Nova Aba "Pagarme" no Financeiro
+## 2. Financeiro -- Separar Pagos/Pendentes no Pagarme
 
-Criar uma edge function `pagarme-extrato` que consulta a API v5 do Pagarme:
-- Endpoint: `GET https://api.pagar.me/core/v5/charges` e/ou `GET https://api.pagar.me/core/v5/orders`
-- Autenticacao: Basic Auth com `PAGARME_API_KEY` (ja configurada nos secrets)
-- Retorna transacoes com valores bruto, taxa, liquido e datas de pagamento
-
-Na pagina Financeiro:
-- Nova aba **"Pagarme"** ao lado de "Visao Geral" e "Comissoes"
-- Exibe tabela estilo extrato: data, pedido, valor bruto, taxa, valor liquido, status
-- Filtros: por ano, por mes, e personalizado (range de datas)
-- Agrupamento por periodo de deposito (payment date) quando disponivel
-- Cards de resumo: total bruto, total taxas, total liquido no periodo filtrado
-
-Arquivos a criar:
-- `supabase/functions/pagarme-extrato/index.ts` -- edge function que consulta a API Pagarme
-
-Arquivos a editar:
-- `src/pages/Financeiro.tsx` -- adicionar aba "Pagarme" com filtros e tabela
-- `supabase/config.toml` -- registrar nova edge function
+Na aba Pagar.me do Financeiro:
+- Separar as transacoes em duas sub-abas: **"Pagos"** e **"Pendentes"**
+- Agrupar pedidos pagos por periodo de deposito (data de pagamento `paid_at`) para facilitar conferencia com os depositos recebidos da Pagarme
 
 ---
 
-## 4. Logo da Djaleco na Sidebar
+## 3. Contabilizar Taxas Pagarme nos Pedidos
 
-- Copiar a imagem `logo_Djaleco.png` para `src/assets/`
-- Substituir o emoji e texto "Djaleco" na sidebar pela imagem da logo
-- Garantir que a logo fica visivel tanto na sidebar expandida quanto colapsada (versao menor)
+Criar logica no sync da Nuvemshop para buscar a taxa correspondente do Pagarme:
+- Ao sincronizar, usar o `order_code` do Pagarme (que corresponde ao numero do pedido Nuvemshop) para preencher `taxa_pagarme` na tabela `pedidos`
+- Recalcular `valor_liquido = valor_bruto - frete - taxa_pagarme`
 
-Arquivos afetados:
-- `src/components/layout/AppSidebar.tsx` -- importar e usar a logo
+Alternativa mais pratica: criar uma funcao no `nuvemshop-sync` que, apos importar pedidos, consulta a edge function `pagarme-extrato` para cruzar e atualizar os valores.
 
 ---
 
-## 5. Cores (sem mudanca)
+## 4. Producao (Kanban) -- Cards Detalhados e Prazos
 
-As cores rosa/rose ja aplicadas no `src/index.css` permanecem inalteradas. O grafico de barras no Financeiro sera atualizado para usar `hsl(350, 45%, 65%)` em vez do azul antigo.
+### Aba "Prazos por Etapa"
+Nova aba na pagina de Producao mostrando os prazos definidos:
+
+| Etapa | Prazo |
+|-------|-------|
+| Corte | 4 dias |
+| Costura | 10 dias |
+| Acabamento | 2 dias |
+| Embalagem | 1 dia |
+| Despachado | 1 dia |
+
+### Sistema de Cores por Prazo
+Cada card no Kanban tera cor dinamica baseada no tempo na etapa:
+- **Azul claro**: dentro do prazo (< 50% do tempo estimado)
+- **Laranja**: entre 50% e 89% do tempo
+- **Vermelho**: >= 90% do tempo estimado
+
+Calculo: `percentual = horasNaEtapa / (prazoDias * 24) * 100`
+
+### Cards Compactos e Informativos
+Cada card mostrara:
+- Numero do pedido + origem (badge pequeno)
+- Nome do cliente
+- Telefone (icone + numero)
+- Cidade/Estado
+- Itens: lista compacta (ex: "2x Jaleco Branco P, 1x Scrub Azul M")
+- Tempo na etapa com indicador de cor
+
+Para isso, o hook `usePedidos` precisara carregar os itens junto (ou criar query separada para pedidos com itens no Kanban).
+
+### Layout das Colunas
+- Reduzir `min-w` das colunas de 260px para ~220px
+- Planejamento tera a mesma largura das demais (atualmente todas sao iguais, entao so ajustar o tamanho geral)
+- Melhorar a fluidez do drag-and-drop com feedback visual (highlight da coluna ao arrastar sobre ela)
+
+---
+
+## 5. Logo 4x Maior
+
+No `AppSidebar.tsx`:
+- Sidebar expandida: `h-10` -> `h-40` (4x)
+- Sidebar colapsada: `h-7` -> `h-28` (4x)
 
 ---
 
 ## Detalhes Tecnicos
 
-### Edge Function `pagarme-extrato`
+### Arquivos a editar
 
 ```text
-GET https://api.pagar.me/core/v5/orders?page=1&size=50
-Authorization: Basic base64(PAGARME_API_KEY + ":")
+src/pages/Pedidos.tsx
+  - Adicionar Tabs (Pagos / Pendentes)
+  - Substituir Badge da etapa por Select dropdown
+  - Importar useUpdatePedido
 
-Retorno esperado: lista de orders com charges contendo:
-- amount (centavos)
-- paid_amount
-- gateway_fee (taxa)
-- status
-- paid_at / payment_date
-- last_transaction
+src/pages/Producao.tsx
+  - Reescrever cards com dados detalhados (cliente, tel, endereco, itens)
+  - Adicionar sistema de cores por prazo
+  - Adicionar aba "Prazos" 
+  - Reduzir largura das colunas
+  - Melhorar feedback visual do drag-and-drop
+  - Carregar pedido_itens junto
+
+src/pages/Financeiro.tsx
+  - Na aba Pagarme, separar em Pagos/Pendentes
+  - Agrupar pagos por data de deposito
+
+src/hooks/usePedidos.ts
+  - Criar hook usePedidosComItens() que faz join de pedidos + pedido_itens
+
+src/components/layout/AppSidebar.tsx
+  - Aumentar tamanho da logo 4x
+
+supabase/functions/nuvemshop-sync/index.ts
+  - Apos sync, cruzar com Pagarme para popular taxa_pagarme
 ```
 
-A funcao recebe query params `year`, `month`, `start_date`, `end_date` para filtrar e retorna os dados formatados para o frontend.
-
-### Calculo de Comissao no Sync
-
-No `nuvemshop-sync`, apos calcular `valorLiquido`:
+### Prazos por Etapa (constante)
 
 ```text
-baseComissao = valorBruto - taxaPagarme - frete
-comissao = baseComissao * (taxaComissaoWilliam / 100)
-vendedor_id = "97f16c11-..."
+const PRAZOS_ETAPA: Record<string, number> = {
+  Corte: 4,
+  Costura: 10,
+  Acabamento: 2,
+  Embalagem: 1,
+  Despachado: 1,
+};
 ```
 
-### Numeracao WhatsApp
+### Logica de Cor do Card
 
-Consulta SQL para proximo numero:
 ```text
-SELECT numero_pedido FROM pedidos 
-WHERE numero_pedido LIKE '%-WP' 
-ORDER BY created_at DESC LIMIT 1
+function getCardColor(etapa, etapa_entrada_em):
+  prazo = PRAZOS_ETAPA[etapa]
+  if (!prazo || !etapa_entrada_em) return "default"
+  horasPassadas = differenceInHours(now, etapa_entrada_em)
+  percentual = horasPassadas / (prazo * 24) * 100
+  if percentual >= 90: return "red" (border-red-400)
+  if percentual >= 50: return "orange" (border-orange-400)
+  return "blue" (border-blue-300)
 ```
-Incrementa o numero e formata como `###-WP` (ex: `001-WP`, `002-WP`).
+
+### Criterio Pago vs Pendente (Pedidos)
+
+Considerar pago quando:
+- Nuvemshop: status original era "paid", "closed" ou "shipped" (o sync ja importa esses)
+- O `valor_bruto > 0` e `etapa_producao` nao e "Novo" nem "Cancelado"
+
+Pendente: `etapa_producao = 'Novo'` ou pedido sem confirmacao.
 
 ### Ordem de implementacao
 
-1. Copiar logo e atualizar sidebar
-2. Ajustar sync Nuvemshop (comissao + vendedor padrao)
-3. Ajustar numeracao WP nos hooks/formularios
-4. Criar edge function pagarme-extrato
-5. Adicionar aba Pagarme no Financeiro com filtros
-6. Corrigir cor do grafico de barras
+1. Logo 4x maior (rapido)
+2. Pedidos: abas Pagos/Pendentes + dropdown de etapa
+3. Producao: cards detalhados + cores por prazo + aba prazos + colunas menores
+4. Financeiro: separar pagos/pendentes no Pagarme + agrupamento
+5. Sync: cruzar taxa Pagarme nos pedidos
