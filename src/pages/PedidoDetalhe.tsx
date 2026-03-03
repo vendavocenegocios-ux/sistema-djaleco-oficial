@@ -54,37 +54,10 @@ export default function PedidoDetalhe() {
     );
   };
 
-  const consultarLinkeTrack = async (codigo: string) => {
-    const user = "DJALECO";
-    const token = "-ysUzVHV1xC8_REYCLZ6Db7p8ZGEDI_QJE_yowcrHDE";
-    const url = `https://api.linketrack.com/track/json?user=${encodeURIComponent(user)}&token=${encodeURIComponent(token)}&codigo=${encodeURIComponent(codigo)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Erro Link & Track: ${res.status}`);
-    const data = await res.json();
-    const eventos = data.eventos || [];
-    if (eventos.length > 0) {
-      const ultimo = eventos[0];
-      const statusText = (ultimo.status || "").toLowerCase();
-      if (statusText.includes("entregue") || statusText.includes("objeto entregue")) {
-        let dataEntrega: string;
-        try {
-          const [day, month, year] = (ultimo.data || "").split("/");
-          const [hour, minute] = (ultimo.hora || "00:00").split(":");
-          dataEntrega = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)).toISOString();
-        } catch {
-          dataEntrega = new Date().toISOString();
-        }
-        await supabase.from("pedidos").update({ etapa_producao: "Entregue", data_entrega: dataEntrega }).eq("id", id!);
-      }
-    }
-    return { source: "linketrack", tracking: data, eventos };
-  };
-
   const handleConsultarRastreio = async () => {
     if (!id) return;
     setTrackingLoading(true);
     try {
-      // Se tem superfrete_order_id, usa edge function
       if (pedido?.superfrete_order_id) {
         const { data, error } = await supabase.functions.invoke("superfrete-tracking", {
           body: { pedido_id: id },
@@ -97,15 +70,7 @@ export default function PedidoDetalhe() {
           queryClient.invalidateQueries({ queryKey: ["pedidos", id] });
         }
       } else if (pedido?.rastreio_codigo) {
-        // Fallback: Link & Track direto do browser
-        const result = await consultarLinkeTrack(pedido.rastreio_codigo);
-        const eventos = result.tracking?.eventos || [];
-        if (eventos.length > 0) {
-          toast.success(`Rastreio atualizado! Último evento: ${eventos[0].status}`);
-        } else {
-          toast.info("Nenhum evento de rastreio encontrado.");
-        }
-        queryClient.invalidateQueries({ queryKey: ["pedidos", id] });
+        toast.info("Rastreio automático disponível apenas para etiquetas SuperFrete. Use o site dos Correios para rastrear manualmente.", { duration: 5000 });
       }
     } catch (e: any) {
       toast.error("Erro ao consultar rastreio: " + (e.message || "erro"));
@@ -264,11 +229,22 @@ export default function PedidoDetalhe() {
                 variant="outline"
                 size="sm"
                 onClick={handleConsultarRastreio}
-                disabled={trackingLoading || (!pedido.superfrete_order_id && !pedido.rastreio_codigo)}
-                title={!pedido.superfrete_order_id && !pedido.rastreio_codigo ? "Necessário etiqueta SuperFrete ou código de rastreio" : ""}
+                disabled={trackingLoading || !pedido.superfrete_order_id}
+                title={!pedido.superfrete_order_id ? "Disponível apenas para etiquetas SuperFrete" : ""}
               >
                 {trackingLoading ? "Consultando..." : "Consultar Rastreio"}
               </Button>
+              {pedido.rastreio_codigo && (
+                <Button variant="outline" size="sm" asChild>
+                  <a
+                    href={`https://www.muambator.com.br/pacotes/${pedido.rastreio_codigo}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Rastrear nos Correios ↗
+                  </a>
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent>
