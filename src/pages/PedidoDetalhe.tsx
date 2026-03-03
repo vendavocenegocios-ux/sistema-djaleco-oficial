@@ -225,7 +225,8 @@ export default function PedidoDetalhe() {
                 variant="outline"
                 size="sm"
                 onClick={handleConsultarRastreio}
-                disabled={trackingLoading || (!pedido.rastreio_codigo && !pedido.superfrete_order_id)}
+                disabled={trackingLoading || !pedido.superfrete_order_id}
+                title={!pedido.superfrete_order_id ? "Só funciona para envios gerados via SuperFrete" : ""}
               >
                 {trackingLoading ? "Consultando..." : "Consultar SuperFrete"}
               </Button>

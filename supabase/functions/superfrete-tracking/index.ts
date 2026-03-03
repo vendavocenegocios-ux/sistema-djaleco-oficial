@@ -35,86 +35,64 @@ serve(async (req) => {
     const trackingCode = pedido.rastreio_codigo;
     const superfreteOrderId = pedido.superfrete_order_id;
 
-    if (!trackingCode && !superfreteOrderId) {
+    if (!superfreteOrderId) {
       return new Response(
-        JSON.stringify({ error: "Pedido sem código de rastreio ou ID SuperFrete" }),
+        JSON.stringify({ error: "Este pedido não possui etiqueta SuperFrete. O rastreio automático só funciona para envios gerados via SuperFrete." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Try to get tracking info from SuperFrete
+    // Query SuperFrete order info endpoint
     let trackingData: any = null;
 
-    async function fetchJsonSafely(url: string, options?: RequestInit) {
-      const res = await fetch(url, options);
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        const text = await res.text();
-        console.error(`Expected JSON but got ${contentType}. Status: ${res.status}. Preview: ${text.substring(0, 200)}`);
-        throw new Error(`SuperFrete API returned ${res.status} with non-JSON response`);
-      }
-      if (!res.ok) {
-        const body = await res.text();
-        console.error(`SuperFrete API error ${res.status}:`, body.substring(0, 300));
-        throw new Error(`SuperFrete API error: ${res.status}`);
-      }
-      return res.json();
+    const res = await fetch(`https://api.superfrete.com/api/v0/order/info/${superfreteOrderId}`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "User-Agent": "Djaleco App (contato@djaleco.com)",
+        Accept: "application/json",
+      },
+    });
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const text = await res.text();
+      console.error(`SuperFrete returned non-JSON. Status: ${res.status}. Content-Type: ${contentType}. Preview: ${text.substring(0, 200)}`);
+      return new Response(
+        JSON.stringify({ error: "SuperFrete retornou resposta inválida. Verifique se a API Key está correta." }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    if (superfreteOrderId) {
-      try {
-        trackingData = await fetchJsonSafely(`https://api.superfrete.com/api/v0/order/info/${superfreteOrderId}`, {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "User-Agent": "Djaleco App",
-            Accept: "application/json",
-          },
-        });
-      } catch (e) {
-        console.error("SuperFrete order info error:", e.message);
-      }
+    if (!res.ok) {
+      const errorBody = await res.json();
+      console.error(`SuperFrete API error ${res.status}:`, JSON.stringify(errorBody));
+      return new Response(
+        JSON.stringify({ error: `Erro SuperFrete: ${res.status}`, details: errorBody }),
+        { status: res.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    if (!trackingData && trackingCode) {
-      try {
-        const result = await fetchJsonSafely(`https://api.superfrete.com/api/v0/tracking`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "User-Agent": "Djaleco App",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({ orders: [{ tracking: trackingCode }] }),
-        });
-        trackingData = result?.data?.[0] || result;
-      } catch (e) {
-        console.error("SuperFrete tracking error:", e.message);
-      }
-    }
+    trackingData = await res.json();
 
-    // Extract delivery date and tracking code from response
+    // Extract updates from response
     const updates: Record<string, any> = {};
 
     if (trackingData) {
-      // Update tracking code if we got one
+      // Update tracking code if available
       if (trackingData.tracking && !pedido.rastreio_codigo) {
         updates.rastreio_codigo = trackingData.tracking;
       }
 
-      // Check if delivered
-      const status = trackingData.status?.toLowerCase?.() || "";
-      const delivered = status === "delivered" || status === "entregue";
+      // Check status
+      const status = (trackingData.status || "").toLowerCase();
+      const delivered = status === "delivered";
 
       if (delivered) {
         updates.etapa_producao = "Entregue";
-        // Try to get delivery date
-        const deliveryDate = trackingData.delivered_at || trackingData.delivery_date || trackingData.updated_at;
-        if (deliveryDate) {
-          updates.data_entrega = new Date(deliveryDate).toISOString();
-        } else {
-          updates.data_entrega = new Date().toISOString();
-        }
+        updates.data_entrega = trackingData.updated_at ? new Date(trackingData.updated_at).toISOString() : new Date().toISOString();
+      } else if (status === "posted" && pedido.rastreio_codigo) {
+        // Mark as dispatched if posted
+        if (!updates.rastreio_codigo) updates.rastreio_codigo = trackingData.tracking;
       }
     }
 
