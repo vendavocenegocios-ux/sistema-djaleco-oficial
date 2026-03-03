@@ -43,13 +43,17 @@ Deno.serve(async (req) => {
       .single();
     const taxaComissaoWilliam = williamData?.taxa_comissao ?? 10;
 
-    // Fetch all orders with pagination
+    // Fetch orders from the last 3 months only to avoid WORKER_LIMIT
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    const createdAtMin = threeMonthsAgo.toISOString();
+
     let allOrders: any[] = [];
     let page = 1;
     const perPage = 50;
     while (true) {
       const res = await fetch(
-        `${baseUrl}/orders?per_page=${perPage}&page=${page}`,
+        `${baseUrl}/orders?per_page=${perPage}&page=${page}&created_at_min=${createdAtMin}`,
         { headers }
       );
       if (!res.ok) {

@@ -1,0 +1,1 @@
+UPDATE pedidos SET status_pagamento = 'recebido' WHERE origem = 'site' AND valor_bruto > 0 AND nuvemshop_order_id IS NOT NULL;
