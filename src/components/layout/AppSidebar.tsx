@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
+import djalecoLogo from "@/assets/logo_Djaleco.png";
 import {
   Sidebar,
   SidebarContent,
@@ -43,13 +44,12 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="p-4">
-        {!collapsed && (
-          <h1 className="text-lg font-bold tracking-tight text-sidebar-primary-foreground">
-            🩺 Djaleco
-          </h1>
+      <SidebarHeader className="p-4 flex items-center justify-center">
+        {!collapsed ? (
+          <img src={djalecoLogo} alt="Djaleco" className="h-10 w-auto object-contain" />
+        ) : (
+          <img src={djalecoLogo} alt="Djaleco" className="h-7 w-7 object-contain" />
         )}
-        {collapsed && <span className="text-lg">🩺</span>}
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

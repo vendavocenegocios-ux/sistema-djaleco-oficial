@@ -5,22 +5,91 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useState } from "react";
-import { format, startOfMonth, subMonths } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
-import { Check } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 
 function formatCurrency(v: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 }
 
+type PagarmeCharge = {
+  id: string;
+  created_at: string;
+  paid_at: string | null;
+  status: string;
+  amount: number;
+  paid_amount: number;
+  gateway_fee: number;
+  order_code: string | null;
+  payment_method: string;
+  installments: number;
+};
+
+function usePagarmeExtrato(params: { year?: string; month?: string; start_date?: string; end_date?: string }) {
+  return useQuery({
+    queryKey: ["pagarme-extrato", params],
+    queryFn: async () => {
+      const query = new URLSearchParams();
+      if (params.year) query.set("year", params.year);
+      if (params.month) query.set("month", params.month);
+      if (params.start_date) query.set("start_date", params.start_date);
+      if (params.end_date) query.set("end_date", params.end_date);
+
+      const { data, error } = await supabase.functions.invoke("pagarme-extrato", {
+        body: null,
+        headers: {},
+      });
+      // Use fetch directly since invoke doesn't support query params well
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/pagarme-extrato?${query.toString()}`,
+        { headers: { "Content-Type": "application/json" } }
+      );
+      if (!res.ok) throw new Error("Falha ao carregar extrato Pagar.me");
+      return res.json() as Promise<{ charges: PagarmeCharge[]; summary: { total_bruto: number; total_liquido: number; total_taxas: number; count: number } }>;
+    },
+    enabled: !!(params.year || params.start_date),
+  });
+}
+
+const STATUS_MAP: Record<string, string> = {
+  paid: "Pago",
+  pending: "Pendente",
+  canceled: "Cancelado",
+  failed: "Falhou",
+  overpaid: "Pago a mais",
+  underpaid: "Pago a menos",
+  processing: "Processando",
+};
+
 export default function Financeiro() {
   const { data: pedidos } = usePedidos();
   const { data: vendedores } = useVendedores();
   const updatePedido = useUpdatePedido();
-  const [tab, setTab] = useState<"visao" | "comissoes">("visao");
+  const [tab, setTab] = useState<"visao" | "comissoes" | "pagarme">("visao");
+
+  // Pagarme filters
+  const currentYear = new Date().getFullYear().toString();
+  const currentMonth = (new Date().getMonth() + 1).toString();
+  const [pgFilterType, setPgFilterType] = useState<"mes" | "custom">("mes");
+  const [pgYear, setPgYear] = useState(currentYear);
+  const [pgMonth, setPgMonth] = useState(currentMonth);
+  const [pgStartDate, setPgStartDate] = useState("");
+  const [pgEndDate, setPgEndDate] = useState("");
+
+  const pagarmeParams = pgFilterType === "mes"
+    ? { year: pgYear, month: pgMonth }
+    : { start_date: pgStartDate, end_date: pgEndDate };
+
+  const { data: pagarmeData, isLoading: pgLoading } = usePagarmeExtrato(pagarmeParams);
 
   const allPedidos = pedidos || [];
   const totalBruto = allPedidos.reduce((s, p) => s + Number(p.valor_bruto), 0);
@@ -29,7 +98,6 @@ export default function Financeiro() {
   const totalTaxas = allPedidos.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
   const totalComissoes = allPedidos.reduce((s, p) => s + Number(p.comissao), 0);
 
-  // Revenue chart
   const revenueByMonth: Record<string, number> = {};
   const sixMonthsAgo = subMonths(new Date(), 6);
   allPedidos
@@ -42,7 +110,6 @@ export default function Financeiro() {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, valor]) => ({ name: format(new Date(month + "-01"), "MMM/yy", { locale: ptBR }), valor }));
 
-  // Comissoes pendentes
   const comissoesPendentes = allPedidos.filter((p) => !p.comissao_paga && Number(p.comissao) > 0);
 
   const handlePagarComissao = (pedidoId: string) => {
@@ -52,15 +119,23 @@ export default function Financeiro() {
     );
   };
 
+  const years = Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - i));
+  const months = [
+    { value: "1", label: "Janeiro" }, { value: "2", label: "Fevereiro" }, { value: "3", label: "Março" },
+    { value: "4", label: "Abril" }, { value: "5", label: "Maio" }, { value: "6", label: "Junho" },
+    { value: "7", label: "Julho" }, { value: "8", label: "Agosto" }, { value: "9", label: "Setembro" },
+    { value: "10", label: "Outubro" }, { value: "11", label: "Novembro" }, { value: "12", label: "Dezembro" },
+  ];
+
   return (
     <AppLayout>
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-foreground">Financeiro</h1>
 
-        {/* Tabs */}
         <div className="flex gap-2">
           <Button variant={tab === "visao" ? "default" : "outline"} size="sm" onClick={() => setTab("visao")}>Visão Geral</Button>
           <Button variant={tab === "comissoes" ? "default" : "outline"} size="sm" onClick={() => setTab("comissoes")}>Comissões</Button>
+          <Button variant={tab === "pagarme" ? "default" : "outline"} size="sm" onClick={() => setTab("pagarme")}>Pagar.me</Button>
         </div>
 
         {tab === "visao" && (
@@ -87,7 +162,7 @@ export default function Financeiro() {
                     <XAxis dataKey="name" fontSize={12} />
                     <YAxis fontSize={12} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
                     <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                    <Bar dataKey="valor" fill="hsl(210, 80%, 45%)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="valor" fill="hsl(350, 45%, 65%)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -97,7 +172,6 @@ export default function Financeiro() {
 
         {tab === "comissoes" && (
           <>
-            {/* Resumo por vendedor */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {vendedores?.map((v) => {
                 const pedidosVendedor = allPedidos.filter((p) => p.vendedor_id === v.id);
@@ -134,12 +208,12 @@ export default function Financeiro() {
                     <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Todas as comissões estão pagas!</TableCell></TableRow>
                   ) : (
                     comissoesPendentes.map((p) => {
-                      const vendedor = vendedores?.find((v) => v.id === p.vendedor_id);
+                      const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
                       return (
                         <TableRow key={p.id}>
                           <TableCell className="font-medium">#{p.numero_pedido}</TableCell>
                           <TableCell>{p.cliente_nome}</TableCell>
-                          <TableCell>{vendedor?.nome || "—"}</TableCell>
+                          <TableCell>{vendedorItem?.nome || "—"}</TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(Number(p.comissao))}</TableCell>
                           <TableCell><Badge variant="destructive" className="text-xs">Pendente</Badge></TableCell>
                           <TableCell>
@@ -154,6 +228,105 @@ export default function Financeiro() {
                 </TableBody>
               </Table>
             </Card>
+          </>
+        )}
+
+        {tab === "pagarme" && (
+          <>
+            {/* Filters */}
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex gap-2">
+                <Button variant={pgFilterType === "mes" ? "default" : "outline"} size="sm" onClick={() => setPgFilterType("mes")}>Por Mês</Button>
+                <Button variant={pgFilterType === "custom" ? "default" : "outline"} size="sm" onClick={() => setPgFilterType("custom")}>Personalizado</Button>
+              </div>
+              {pgFilterType === "mes" ? (
+                <>
+                  <Select value={pgYear} onValueChange={setPgYear}>
+                    <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                    <SelectContent>{years.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={pgMonth} onValueChange={setPgMonth}>
+                    <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                    <SelectContent>{months.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </>
+              ) : (
+                <>
+                  <Input type="date" value={pgStartDate} onChange={(e) => setPgStartDate(e.target.value)} className="w-40" />
+                  <span className="text-muted-foreground">até</span>
+                  <Input type="date" value={pgEndDate} onChange={(e) => setPgEndDate(e.target.value)} className="w-40" />
+                </>
+              )}
+            </div>
+
+            {/* Summary cards */}
+            {pagarmeData?.summary && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Transações</CardTitle></CardHeader>
+                  <CardContent><div className="text-xl font-bold">{pagarmeData.summary.count}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Valor Bruto</CardTitle></CardHeader>
+                  <CardContent><div className="text-xl font-bold">{formatCurrency(pagarmeData.summary.total_bruto)}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Taxas Pagar.me</CardTitle></CardHeader>
+                  <CardContent><div className="text-xl font-bold text-destructive">{formatCurrency(pagarmeData.summary.total_taxas)}</div></CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Valor Líquido</CardTitle></CardHeader>
+                  <CardContent><div className="text-xl font-bold text-primary">{formatCurrency(pagarmeData.summary.total_liquido)}</div></CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Table */}
+            {pgLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground">Carregando extrato...</span>
+              </div>
+            ) : (
+              <Card className="overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Pedido</TableHead>
+                      <TableHead>Método</TableHead>
+                      <TableHead>Parcelas</TableHead>
+                      <TableHead className="text-right">Bruto</TableHead>
+                      <TableHead className="text-right">Taxa</TableHead>
+                      <TableHead className="text-right">Líquido</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {!pagarmeData?.charges?.length ? (
+                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nenhuma transação encontrada no período</TableCell></TableRow>
+                    ) : (
+                      pagarmeData.charges.map((c) => (
+                        <TableRow key={c.id}>
+                          <TableCell className="text-sm">{c.created_at ? format(new Date(c.created_at), "dd/MM/yyyy") : "—"}</TableCell>
+                          <TableCell className="font-medium">{c.order_code || "—"}</TableCell>
+                          <TableCell className="text-sm capitalize">{c.payment_method}</TableCell>
+                          <TableCell className="text-sm">{c.installments}x</TableCell>
+                          <TableCell className="text-right text-sm">{formatCurrency(c.amount)}</TableCell>
+                          <TableCell className="text-right text-sm text-destructive">{formatCurrency(c.gateway_fee)}</TableCell>
+                          <TableCell className="text-right text-sm font-medium">{formatCurrency(c.paid_amount)}</TableCell>
+                          <TableCell>
+                            <Badge variant={c.status === "paid" ? "default" : "secondary"} className="text-xs">
+                              {STATUS_MAP[c.status] || c.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
           </>
         )}
       </div>

@@ -102,3 +102,19 @@ export function useDeletePedidoItem() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pedido_itens"] }),
   });
 }
+
+export async function getNextWPNumber(): Promise<string> {
+  const { data } = await supabase
+    .from("pedidos")
+    .select("numero_pedido")
+    .like("numero_pedido", "%-WP")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  let next = 1;
+  if (data?.length) {
+    const match = data[0].numero_pedido.match(/^(\d+)-WP$/);
+    if (match) next = parseInt(match[1], 10) + 1;
+  }
+  return `${String(next).padStart(3, "0")}-WP`;
+}

@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 const NUVEMSHOP_API = "https://api.tiendanube.com/v1";
+const WILLIAM_VENDEDOR_ID = "97f16c11-121d-47d3-9212-ece04cbcb348";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -34,6 +35,14 @@ Deno.serve(async (req) => {
       "User-Agent": "Djaleco App (contato@djaleco.com.br)",
     };
 
+    // Fetch William's commission rate
+    const { data: williamData } = await supabase
+      .from("vendedores")
+      .select("taxa_comissao")
+      .eq("id", WILLIAM_VENDEDOR_ID)
+      .single();
+    const taxaComissaoWilliam = williamData?.taxa_comissao ?? 10;
+
     // Fetch all orders with pagination
     let allOrders: any[] = [];
     let page = 1;
@@ -60,90 +69,50 @@ Deno.serve(async (req) => {
     let syncedClientes = 0;
 
     for (const order of allOrders) {
-      // Upsert cliente
-      const customerName =
-        order.customer?.name || order.contact_name || "Sem nome";
-      const customerPhone =
-        order.customer?.phone || order.contact_phone || null;
-      const customerEmail =
-        order.customer?.email || order.contact_email || null;
-      const customerDoc =
-        order.customer?.identification || order.contact_identification || null;
+      const customerName = order.customer?.name || order.contact_name || "Sem nome";
+      const customerPhone = order.customer?.phone || order.contact_phone || null;
+      const customerEmail = order.customer?.email || order.contact_email || null;
+      const customerDoc = order.customer?.identification || order.contact_identification || null;
 
-      // Check if cliente exists by name+phone or email
       let clienteId: string | null = null;
       if (customerEmail) {
-        const { data: existing } = await supabase
-          .from("clientes")
-          .select("id")
-          .eq("email", customerEmail)
-          .maybeSingle();
+        const { data: existing } = await supabase.from("clientes").select("id").eq("email", customerEmail).maybeSingle();
         clienteId = existing?.id || null;
       }
       if (!clienteId && customerPhone) {
-        const { data: existing } = await supabase
-          .from("clientes")
-          .select("id")
-          .eq("telefone", customerPhone)
-          .maybeSingle();
+        const { data: existing } = await supabase.from("clientes").select("id").eq("telefone", customerPhone).maybeSingle();
         clienteId = existing?.id || null;
       }
 
-      const cidadeCliente =
-        order.shipping_address?.city || order.billing_city || null;
-      const estadoCliente =
-        order.shipping_address?.province || order.billing_province || null;
+      const cidadeCliente = order.shipping_address?.city || order.billing_city || null;
+      const estadoCliente = order.shipping_address?.province || order.billing_province || null;
 
       if (!clienteId) {
         const { data: newCliente, error: clienteError } = await supabase
           .from("clientes")
-          .insert({
-            nome: customerName,
-            telefone: customerPhone,
-            email: customerEmail,
-            documento: customerDoc,
-            cidade: cidadeCliente,
-            estado: estadoCliente,
-            origem: "site",
-          })
-          .select("id")
-          .single();
-        if (clienteError) {
-          console.error("Error creating cliente:", clienteError);
-        } else {
-          clienteId = newCliente.id;
-          syncedClientes++;
-        }
+          .insert({ nome: customerName, telefone: customerPhone, email: customerEmail, documento: customerDoc, cidade: cidadeCliente, estado: estadoCliente, origem: "site" })
+          .select("id").single();
+        if (clienteError) { console.error("Error creating cliente:", clienteError); }
+        else { clienteId = newCliente.id; syncedClientes++; }
       }
 
-      // Parse order values
       const valorBruto = parseFloat(order.total) || 0;
-      const frete =
-        parseFloat(order.shipping_cost_customer) ||
-        parseFloat(order.shipping_cost_owner) ||
-        0;
+      const frete = parseFloat(order.shipping_cost_customer) || parseFloat(order.shipping_cost_owner) || 0;
       const taxaPagarme = parseFloat(order.gateway_fee) || 0;
       const valorLiquido = valorBruto - frete - taxaPagarme;
 
-      // Get shipping tracking
-      const rastreioCodigo =
-        order.shipping_tracking_number ||
-        order.fulfillments?.[0]?.tracking_number ||
-        null;
+      // Commission calculation
+      const baseComissao = valorBruto - taxaPagarme - frete;
+      const comissao = baseComissao > 0 ? baseComissao * (taxaComissaoWilliam / 100) : 0;
 
-      // Map Nuvemshop status to etapa
+      const rastreioCodigo = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
+
       let etapa = "Planejamento";
-      if (order.status === "open" && order.payment_status === "paid") {
-        etapa = "Planejamento";
-      } else if (order.status === "closed") {
-        etapa = "Entregue";
-      } else if (order.shipping_status === "shipped") {
-        etapa = "Despachado";
-      } else if (order.status === "cancelled") {
-        etapa = "Cancelado";
-      }
+      if (order.status === "open" && order.payment_status === "paid") etapa = "Planejamento";
+      else if (order.status === "closed") etapa = "Entregue";
+      else if (order.shipping_status === "shipped") etapa = "Despachado";
+      else if (order.status === "cancelled") etapa = "Cancelado";
 
-      // Upsert pedido by nuvemshop_order_id
       const pedidoData = {
         numero_pedido: String(order.number || order.id),
         nuvemshop_order_id: order.id,
@@ -159,46 +128,26 @@ Deno.serve(async (req) => {
         valor_liquido: valorLiquido,
         rastreio_codigo: rastreioCodigo,
         etapa_producao: etapa,
+        vendedor_id: WILLIAM_VENDEDOR_ID,
+        comissao,
       };
 
-      const { data: existingPedido } = await supabase
-        .from("pedidos")
-        .select("id")
-        .eq("nuvemshop_order_id", order.id)
-        .maybeSingle();
+      const { data: existingPedido } = await supabase.from("pedidos").select("id").eq("nuvemshop_order_id", order.id).maybeSingle();
 
       let pedidoId: string;
       if (existingPedido) {
-        const { data: updated, error } = await supabase
-          .from("pedidos")
-          .update(pedidoData)
-          .eq("id", existingPedido.id)
-          .select("id")
-          .single();
-        if (error) {
-          console.error("Error updating pedido:", error);
-          continue;
-        }
+        const { data: updated, error } = await supabase.from("pedidos").update(pedidoData).eq("id", existingPedido.id).select("id").single();
+        if (error) { console.error("Error updating pedido:", error); continue; }
         pedidoId = updated.id;
       } else {
-        const { data: created, error } = await supabase
-          .from("pedidos")
-          .insert(pedidoData)
-          .select("id")
-          .single();
-        if (error) {
-          console.error("Error creating pedido:", error);
-          continue;
-        }
+        const { data: created, error } = await supabase.from("pedidos").insert(pedidoData).select("id").single();
+        if (error) { console.error("Error creating pedido:", error); continue; }
         pedidoId = created.id;
       }
       syncedOrders++;
 
-      // Sync order items (products)
       if (order.products?.length) {
-        // Delete existing items for this order to avoid duplicates
         await supabase.from("pedido_itens").delete().eq("pedido_id", pedidoId);
-
         const items = order.products.map((p: any) => ({
           pedido_id: pedidoId,
           nome_produto: p.name || p.product_id?.toString() || "Produto",
@@ -206,61 +155,34 @@ Deno.serve(async (req) => {
           tamanho: p.variant_values?.[0] || null,
           cor: p.variant_values?.[1] || null,
         }));
-
-        const { error: itemsError } = await supabase
-          .from("pedido_itens")
-          .insert(items);
-        if (itemsError) {
-          console.error("Error inserting items:", itemsError);
-        }
+        const { error: itemsError } = await supabase.from("pedido_itens").insert(items);
+        if (itemsError) console.error("Error inserting items:", itemsError);
       }
 
-      // Update cliente totals
       if (clienteId) {
-        const { data: pedidosCliente } = await supabase
-          .from("pedidos")
-          .select("valor_bruto, data_pedido")
-          .eq("cliente_nome", customerName);
-
+        const { data: pedidosCliente } = await supabase.from("pedidos").select("valor_bruto, data_pedido").eq("cliente_nome", customerName);
         if (pedidosCliente) {
-          const totalGasto = pedidosCliente.reduce(
-            (s, p) => s + Number(p.valor_bruto),
-            0
-          );
+          const totalGasto = pedidosCliente.reduce((s, p) => s + Number(p.valor_bruto), 0);
           const datas = pedidosCliente.map((p) => p.data_pedido).sort();
-          await supabase
-            .from("clientes")
-            .update({
-              total_pedidos: pedidosCliente.length,
-              total_gasto: totalGasto,
-              primeira_compra: datas[0] || null,
-              ultima_compra: datas[datas.length - 1] || null,
-            })
-            .eq("id", clienteId);
+          await supabase.from("clientes").update({
+            total_pedidos: pedidosCliente.length,
+            total_gasto: totalGasto,
+            primeira_compra: datas[0] || null,
+            ultima_compra: datas[datas.length - 1] || null,
+          }).eq("id", clienteId);
         }
       }
     }
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        message: `Sync concluído: ${syncedOrders} pedidos, ${syncedClientes} novos clientes`,
-        orders_synced: syncedOrders,
-        clients_created: syncedClientes,
-      }),
+      JSON.stringify({ success: true, message: `Sync concluído: ${syncedOrders} pedidos, ${syncedClientes} novos clientes`, orders_synced: syncedOrders, clients_created: syncedClientes }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("Sync error:", error);
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : "Unknown error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
