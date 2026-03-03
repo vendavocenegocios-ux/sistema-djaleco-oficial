@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
 
         const cidadeCliente = order.shipping_address?.city || order.billing_city || null;
         const estadoCliente = order.shipping_address?.province || order.billing_province || null;
-        const enderecoCliente = order.shipping_address?.address || null;
+        const enderecoCliente = [order.shipping_address?.address, order.shipping_address?.number, order.shipping_address?.floor].filter(Boolean).join(", ") || null;
         const bairroCliente = order.shipping_address?.locality || null;
         const cepCliente = order.shipping_address?.zipcode || null;
 

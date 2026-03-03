@@ -270,7 +270,7 @@ export default function Pedidos() {
 
         <Tabs defaultValue="pagos">
           <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="pagos" className="flex-1 sm:flex-none">Pagos ({pagos.length})</TabsTrigger>
+            <TabsTrigger value="pagos" className="flex-1 sm:flex-none">Recebidos ({pagos.length})</TabsTrigger>
             <TabsTrigger value="pendentes" className="flex-1 sm:flex-none">Pendentes ({pendentes.length})</TabsTrigger>
           </TabsList>
           <TabsContent value="pagos" className="mt-4">
