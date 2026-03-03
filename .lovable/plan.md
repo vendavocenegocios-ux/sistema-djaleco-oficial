@@ -1,42 +1,62 @@
 
 
-## Diagnóstico e Plano de Ação
+## Plano: Autenticação com Perfis Admin e Usuário
 
-### Problemas Identificados
+### Resumo
+Adicionar autenticação ao app com dois perfis:
+- **Admin** (wnogueira@hotmail.com) — acesso total, pode editar/excluir dados, manutenção
+- **Usuário** (apaulaalt@gmail.com) — acesso de consulta e criação de pedidos, sem poder excluir dados ou alterar configurações
 
-**1. Taxas Pagar.me (problema principal)**
-Executei o sync agora e ele atualizou apenas **21 de 423 pedidos**. O motivo: a API do Pagar.me retornou apenas **30 charges** nos últimos 6 meses. Os pedidos mais antigos (desde 2022) não têm correspondência na API. Isso pode significar:
-- O Pagar.me só retém dados recentes na API de charges
-- A janela de 6 meses é insuficiente (precisa ampliar)
+### Implementação
 
-Além disso, o sync usa `taxa_comissao` genérica, mas a tabela tem `taxa_comissao_site` e `taxa_comissao_whatsapp`. O cálculo deveria usar a taxa correta conforme a `origem` do pedido.
+#### 1. Banco de Dados (Migrations)
+- Criar enum `app_role` com valores `admin` e `user`
+- Criar tabela `user_roles` (user_id, role) com RLS e função `has_role()` security definer
+- Criar tabela `profiles` (id, email, nome, created_at) com trigger para auto-criar perfil no signup
 
-**2. Comissões**
-Após o sync de agora, os valores de William Nogueira mudaram (R$24.196,93 total / R$24.127,54 pendente) porque 21 pedidos tiveram a comissão recalculada com as taxas do Pagar.me. Porém, os ~400 pedidos restantes ainda usam comissão calculada sem taxa (taxa_pagarme = 0), inflando o valor.
+#### 2. Criar Usuários
+- Criar os dois usuários via Supabase Auth (signup)
+- Inserir roles: `admin` para wnogueira, `user` para apaulaalt
 
-**3. Gráficos do Dashboard**
-Concordo que os gráficos de pizza e barras estão simples demais. O usuário quer removê-los ou substituí-los.
+#### 3. Página de Login (`src/pages/Login.tsx`)
+- Formulário simples com email + senha
+- Redireciona para Dashboard após login
+- Sem opção de cadastro (usuários são criados pelo admin)
 
----
+#### 4. Auth Context (`src/hooks/useAuth.ts`)
+- Hook com `onAuthStateChange` + `getSession`
+- Expõe `user`, `role`, `signOut`, `loading`
+- Consulta `user_roles` para determinar o papel
 
-### Plano de Implementação
+#### 5. Rotas Protegidas (`src/components/ProtectedRoute.tsx`)
+- Componente wrapper que redireciona para `/login` se não autenticado
+- Todas as rotas existentes ficam protegidas
 
-#### 1. Redesign do Dashboard
-- **Remover** os 4 gráficos (Faturamento Mensal, Pedidos por Origem, Etapas da Produção, Últimos Pedidos pie chart)
-- **Manter** apenas os KPI boxes (Pedidos, Fat. Bruto, Fat. Líquido, Ticket Médio, Clientes Novos) + Financeiro boxes + Produção boxes
-- **Manter** a seção "Últimos Pedidos" como lista (sem gráfico)
-- **Trocar o filtro** de 4 presets para: seletor de **Ano + Mês** (como no Financeiro) e modo **Personalizado** com date range
+#### 6. Controle de Acesso por Role
+- **Admin**: acesso total (tudo que já existe)
+- **User (Ana Paula)**: 
+  - Pode ver Dashboard, Pedidos, Clientes, Produção, Produtos
+  - Pode criar pedidos
+  - **Não pode**: excluir pedidos/clientes, acessar página Vendedores, editar configurações financeiras (comissões)
+  - Botões de exclusão e edição de vendedores ficam ocultos/desabilitados
 
-#### 2. Corrigir Sync Pagar.me
-- **Ampliar janela** de 6 meses para **24 meses** para cobrir mais pedidos
-- **Corrigir cálculo de comissão** no sync: usar `taxa_comissao_site` ou `taxa_comissao_whatsapp` conforme `pedido.origem`
-- Adicionar o campo `origem` na query de pedidos do sync
+#### 7. Sidebar e Layout
+- Adicionar botão de logout no `AppSidebar`
+- Ocultar itens de menu restritos conforme o role (ex: Vendedores só para admin)
 
-#### 3. Recalcular Comissões
-- Após o sync atualizar as taxas, a comissão é recalculada automaticamente. Os valores no Financeiro vão refletir os números corretos assim que mais pedidos tiverem a `taxa_pagarme` preenchida.
+### Arquivos a Criar
+- `src/pages/Login.tsx`
+- `src/hooks/useAuth.ts`
+- `src/components/ProtectedRoute.tsx`
 
 ### Arquivos a Modificar
-- `src/pages/Dashboard.tsx` - Remover gráficos, novo filtro por mês
-- `src/hooks/useDashboardStats.ts` - Adaptar query ao novo formato de filtro (ano+mês+custom)
-- `supabase/functions/pagarme-fees-sync/index.ts` - Ampliar janela, corrigir taxa por origem
+- `src/App.tsx` — adicionar rota `/login` e proteger demais rotas
+- `src/components/layout/AppSidebar.tsx` — botão logout + filtrar menu por role
+- `src/components/layout/AppLayout.tsx` — exibir nome do usuário no header
+- Páginas com ações destrutivas (Pedidos, Clientes, Vendedores, Financeiro) — ocultar botões conforme role
+
+### Segurança
+- Roles armazenados em tabela separada (`user_roles`), nunca no profiles
+- Função `has_role()` com `SECURITY DEFINER` para evitar recursão RLS
+- Senhas nunca armazenadas no código — usuários criados via Supabase Auth
 
