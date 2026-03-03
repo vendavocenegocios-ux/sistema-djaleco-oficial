@@ -6,10 +6,12 @@ import {
   Users,
   DollarSign,
   UserCog,
+  LogOut,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import djalecoLogo from "@/assets/logo_Djaleco.png";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Sidebar,
   SidebarContent,
@@ -20,8 +22,10 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 
 const mainItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -33,7 +37,7 @@ const mainItems = [
 
 const financeItems = [
   { title: "Financeiro", url: "/financeiro", icon: DollarSign },
-  { title: "Vendedores", url: "/vendedores", icon: UserCog },
+  { title: "Vendedores", url: "/vendedores", icon: UserCog, adminOnly: true },
 ];
 
 export function AppSidebar() {
@@ -41,8 +45,14 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const currentPath = location.pathname;
+  const { isAdmin, user, signOut } = useAuth();
+
   const isActive = (path: string) =>
     path === "/" ? currentPath === "/" : currentPath.startsWith(path);
+
+  const visibleFinanceItems = financeItems.filter(
+    (item) => !item.adminOnly || isAdmin
+  );
 
   return (
     <Sidebar collapsible="icon">
@@ -75,7 +85,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Financeiro</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {financeItems.map((item) => (
+              {visibleFinanceItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <NavLink to={item.url}>
@@ -89,6 +99,22 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter className="p-3">
+        {!collapsed && user && (
+          <p className="text-xs text-muted-foreground truncate mb-2 px-2">
+            {user.email}
+          </p>
+        )}
+        <Button
+          variant="ghost"
+          size={collapsed ? "icon" : "default"}
+          className="w-full justify-start text-muted-foreground hover:text-foreground"
+          onClick={signOut}
+        >
+          <LogOut className="h-4 w-4" />
+          {!collapsed && <span className="ml-2">Sair</span>}
+        </Button>
+      </SidebarFooter>
     </Sidebar>
   );
 }
