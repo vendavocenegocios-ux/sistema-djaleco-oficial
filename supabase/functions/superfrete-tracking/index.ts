@@ -57,38 +57,9 @@ serve(async (req) => {
       }
     }
 
-    // Strategy 2: Link & Track fallback (if we have a tracking code)
-    if (!trackingData && trackingCode) {
-      const ltUser = Deno.env.get("LINKETRACK_USER");
-      const ltToken = Deno.env.get("LINKETRACK_TOKEN");
-
-      if (!ltUser || !ltToken) {
-        return new Response(
-          JSON.stringify({ error: "Credenciais Link & Track não configuradas. Adicione LINKETRACK_USER e LINKETRACK_TOKEN nos secrets." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      const ltUrl = `https://api.linketrack.com/track/json?user=${encodeURIComponent(ltUser)}&token=${encodeURIComponent(ltToken)}&codigo=${encodeURIComponent(trackingCode)}`;
-      const ltRes = await fetch(ltUrl);
-
-      if (ltRes.ok) {
-        const ltData = await ltRes.json();
-        trackingData = ltData;
-        source = "linketrack";
-      } else {
-        const errText = await ltRes.text();
-        console.error(`Link & Track error ${ltRes.status}: ${errText}`);
-        return new Response(
-          JSON.stringify({ error: `Erro ao consultar Link & Track: ${ltRes.status}` }),
-          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-
     if (!trackingData) {
       return new Response(
-        JSON.stringify({ error: "Este pedido não possui etiqueta SuperFrete nem código de rastreio para consultar." }),
+        JSON.stringify({ error: "Este pedido não possui etiqueta SuperFrete. Use o rastreio direto pelos Correios.", needs_linketrack: true }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
