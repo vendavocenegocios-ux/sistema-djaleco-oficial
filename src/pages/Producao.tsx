@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { differenceInHours } from "date-fns";
 import { Link } from "react-router-dom";
 import { Phone, MapPin, Clock } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const ETAPAS = ["Planejamento", "Corte", "Costura", "Acabamento", "Embalagem", "Despachado"];
 
@@ -41,41 +41,97 @@ export default function Producao() {
   const { data: pedidos } = usePedidosComItens();
   const updatePedido = useUpdatePedido();
   const [dragOverEtapa, setDragOverEtapa] = useState<string | null>(null);
+  const [localPedidos, setLocalPedidos] = useState<PedidoComItens[]>([]);
+  const dragItemRef = useRef<string | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Sync server data to local state
+  useEffect(() => {
+    if (pedidos) setLocalPedidos(pedidos);
+  }, [pedidos]);
 
   const pedidosByEtapa = ETAPAS.reduce(
     (acc, etapa) => {
-      acc[etapa] = pedidos?.filter((p) => p.etapa_producao === etapa) || [];
+      acc[etapa] = localPedidos.filter((p) => p.etapa_producao === etapa);
       return acc;
     },
     {} as Record<string, PedidoComItens[]>
   );
 
-  const handleDrop = (pedidoId: string, novaEtapa: string) => {
+  const handleDrop = useCallback((pedidoId: string, novaEtapa: string) => {
     setDragOverEtapa(null);
-    updatePedido.mutate(
-      { id: pedidoId, etapa_producao: novaEtapa, etapa_entrada_em: new Date().toISOString() },
-      { onSuccess: () => toast.success(`Movido para ${novaEtapa}`) }
+    const now = new Date().toISOString();
+
+    // 1. Optimistic: update local state INSTANTLY
+    setLocalPedidos((prev) =>
+      prev.map((p) =>
+        p.id === pedidoId ? { ...p, etapa_producao: novaEtapa, etapa_entrada_em: now } : p
+      )
     );
-  };
+
+    // 2. Persist in background
+    updatePedido.mutate(
+      { id: pedidoId, etapa_producao: novaEtapa, etapa_entrada_em: now },
+      {
+        onSuccess: () => toast.success(`Movido para ${novaEtapa}`),
+        onError: () => {
+          toast.error("Erro ao mover pedido");
+          // Revert on error
+          if (pedidos) setLocalPedidos(pedidos);
+        },
+      }
+    );
+  }, [updatePedido, pedidos]);
+
+  // Touch handlers for mobile drag
+  const handleTouchStart = useCallback((e: React.TouchEvent, pedidoId: string) => {
+    dragItemRef.current = pedidoId;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!dragItemRef.current) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const col = el?.closest("[data-etapa]");
+    if (col) {
+      setDragOverEtapa(col.getAttribute("data-etapa"));
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (dragItemRef.current && dragOverEtapa) {
+      handleDrop(dragItemRef.current, dragOverEtapa);
+    }
+    dragItemRef.current = null;
+    touchStartRef.current = null;
+    setDragOverEtapa(null);
+  }, [dragOverEtapa, handleDrop]);
 
   return (
     <AppLayout>
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-foreground">Produção</h1>
+      <div className="space-y-4 sm:space-y-6">
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground">Produção</h1>
 
         <Tabs defaultValue="kanban">
-          <TabsList>
+          <TabsList className="w-full sm:w-auto overflow-x-auto">
             <TabsTrigger value="kanban">Kanban</TabsTrigger>
             <TabsTrigger value="prazos">Prazos por Etapa</TabsTrigger>
           </TabsList>
 
           <TabsContent value="kanban" className="mt-4">
-            <div className="flex gap-3 overflow-x-auto pb-4">
+            <div
+              className="flex gap-2 sm:gap-3 overflow-x-auto pb-4 snap-x snap-mandatory"
+              style={{ WebkitOverflowScrolling: "touch" }}
+            >
               {ETAPAS.map((etapa) => (
                 <div
                   key={etapa}
-                  className={`min-w-[220px] max-w-[220px] flex-shrink-0 transition-colors rounded-lg ${
-                    dragOverEtapa === etapa ? "ring-2 ring-primary/50" : ""
+                  data-etapa={etapa}
+                  className={`min-w-[180px] sm:min-w-[220px] max-w-[180px] sm:max-w-[220px] flex-shrink-0 snap-start transition-colors rounded-lg ${
+                    dragOverEtapa === etapa ? "ring-2 ring-primary/50 bg-accent/30" : ""
                   }`}
                   onDragOver={(e) => {
                     e.preventDefault();
@@ -89,15 +145,15 @@ export default function Producao() {
                   }}
                 >
                   <Card className="h-full">
-                    <CardHeader className="pb-2 px-3 pt-3">
+                    <CardHeader className="pb-2 px-2 sm:px-3 pt-2 sm:pt-3">
                       <div className="flex items-center justify-between">
-                        <CardTitle className="text-xs font-medium">{etapa}</CardTitle>
-                        <Badge variant="secondary" className="text-[10px] px-1.5">
+                        <CardTitle className="text-[10px] sm:text-xs font-medium">{etapa}</CardTitle>
+                        <Badge variant="secondary" className="text-[9px] sm:text-[10px] px-1 sm:px-1.5">
                           {pedidosByEtapa[etapa]?.length || 0}
                         </Badge>
                       </div>
                     </CardHeader>
-                    <CardContent className="space-y-2 px-3 pb-3 min-h-[150px]">
+                    <CardContent className="space-y-1.5 sm:space-y-2 px-2 sm:px-3 pb-2 sm:pb-3 min-h-[120px] sm:min-h-[150px]">
                       {pedidosByEtapa[etapa]?.map((p) => {
                         const colorClass = getCardColor(etapa, p.etapa_entrada_em);
                         const timeStr = formatTimeInStage(p.etapa_entrada_em);
@@ -116,22 +172,26 @@ export default function Producao() {
                             key={p.id}
                             draggable
                             onDragStart={(e) => e.dataTransfer.setData("pedidoId", p.id)}
-                            className={`p-2 rounded-md border-2 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all text-[11px] ${colorClass}`}
+                            onTouchStart={(e) => handleTouchStart(e, p.id)}
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={handleTouchEnd}
+                            className={`p-1.5 sm:p-2 rounded-md border-2 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all text-[10px] sm:text-[11px] select-none ${colorClass}`}
+                            style={{ touchAction: "none" }}
                           >
-                            <Link to={`/pedidos/${p.id}`} className="block space-y-1">
+                            <Link to={`/pedidos/${p.id}`} className="block space-y-0.5 sm:space-y-1">
                               <div className="flex items-center justify-between">
                                 <span className="font-semibold text-primary">#{p.numero_pedido}</span>
-                                <Badge variant="outline" className="text-[9px] px-1 py-0">{p.origem}</Badge>
+                                <Badge variant="outline" className="text-[8px] sm:text-[9px] px-1 py-0">{p.origem}</Badge>
                               </div>
                               <p className="font-medium truncate">{p.cliente_nome}</p>
                               {p.cliente_telefone && (
                                 <p className="flex items-center gap-1 text-muted-foreground">
-                                  <Phone className="h-2.5 w-2.5" />{p.cliente_telefone}
+                                  <Phone className="h-2 w-2 sm:h-2.5 sm:w-2.5" />{p.cliente_telefone}
                                 </p>
                               )}
                               {(p.cidade || p.estado) && (
                                 <p className="flex items-center gap-1 text-muted-foreground">
-                                  <MapPin className="h-2.5 w-2.5" />{[p.cidade, p.estado].filter(Boolean).join("/")}
+                                  <MapPin className="h-2 w-2 sm:h-2.5 sm:w-2.5" />{[p.cidade, p.estado].filter(Boolean).join("/")}
                                 </p>
                               )}
                               {itensStr && (
@@ -141,7 +201,7 @@ export default function Producao() {
                               )}
                               {timeStr && (
                                 <p className="flex items-center gap-1 text-muted-foreground">
-                                  <Clock className="h-2.5 w-2.5" />{timeStr} nesta etapa
+                                  <Clock className="h-2 w-2 sm:h-2.5 sm:w-2.5" />{timeStr} nesta etapa
                                 </p>
                               )}
                             </Link>
@@ -158,15 +218,15 @@ export default function Producao() {
           <TabsContent value="prazos" className="mt-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Prazos Estimados por Etapa</CardTitle>
+                <CardTitle className="text-sm sm:text-base">Prazos Estimados por Etapa</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Etapa</TableHead>
                       <TableHead>Prazo</TableHead>
-                      <TableHead>Indicador</TableHead>
+                      <TableHead className="hidden sm:table-cell">Indicador</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -174,7 +234,7 @@ export default function Producao() {
                       <TableRow key={etapa}>
                         <TableCell className="font-medium">{etapa}</TableCell>
                         <TableCell>{dias} {dias === 1 ? "dia" : "dias"}</TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <div className="flex gap-2">
                             <Badge className="bg-blue-100 text-blue-700 text-[10px]">&lt;50% azul</Badge>
                             <Badge className="bg-orange-100 text-orange-700 text-[10px]">50-89% laranja</Badge>
