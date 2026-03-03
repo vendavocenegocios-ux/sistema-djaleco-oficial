@@ -22,9 +22,7 @@ function formatCurrency(value: number) {
 }
 
 function isPago(p: { etapa_producao: string | null; valor_bruto: number; taxa_pagarme: number }) {
-  if (Number(p.taxa_pagarme) > 0) return true;
-  const etapa = p.etapa_producao || "";
-  return Number(p.valor_bruto) > 0 && etapa !== "" && etapa !== "Novo" && etapa !== "Cancelado";
+  return Number(p.taxa_pagarme) > 0;
 }
 
 export default function Pedidos() {

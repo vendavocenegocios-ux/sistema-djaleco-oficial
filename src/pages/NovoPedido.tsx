@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { useCreatePedido, useCreatePedidoItem, getNextWPNumber } from "@/hooks/usePedidos";
+import { useCreatePedido, useCreatePedidoItem, getNextZAPNumber } from "@/hooks/usePedidos";
 import { ClipboardPaste, Save, Trash2, Plus } from "lucide-react";
 
 interface ItemForm {
@@ -42,14 +42,37 @@ function parseWhatsApp(text: string) {
 
 function parseItens(pedidoStr: string): ItemForm[] {
   if (!pedidoStr) return [];
-  return pedidoStr.split(",").map((s) => {
-    const trimmed = s.trim();
-    const match = trimmed.match(/^(\d+)\s*x\s*(.+)$/i);
-    if (match) {
-      return { nome_produto: match[2].trim(), quantidade: parseInt(match[1], 10), tamanho: "", cor: "" };
+  // Split by the pattern "Nx " which marks the start of each item
+  const items: ItemForm[] = [];
+  const regex = /(\d+)\s*x\s+/gi;
+  const parts: { qty: number; start: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(pedidoStr)) !== null) {
+    parts.push({ qty: parseInt(m[1], 10), start: m.index + m[0].length });
+  }
+  for (let i = 0; i < parts.length; i++) {
+    const end = i + 1 < parts.length ? pedidoStr.lastIndexOf(",", parts[i + 1].start) : pedidoStr.length;
+    const raw = pedidoStr.substring(parts[i].start, end >= parts[i].start ? end : pedidoStr.length).trim().replace(/,\s*$/, "");
+    if (!raw) continue;
+    // Try to extract color from parentheses and size pattern like "M (42)"
+    let nome = raw;
+    let cor = "";
+    let tamanho = "";
+    // Match trailing size like "M (42)" or "P" or "GG"
+    const sizeMatch = nome.match(/\s+(PP|P|M|G|GG|XG|XXG|EG|EGG)\s*(?:\((\d+)\))?\s*$/i);
+    if (sizeMatch) {
+      tamanho = sizeMatch[2] ? `${sizeMatch[1]} (${sizeMatch[2]})` : sizeMatch[1];
+      nome = nome.substring(0, sizeMatch.index!).trim();
     }
-    return { nome_produto: trimmed, quantidade: 1, tamanho: "", cor: "" };
-  }).filter((i) => i.nome_produto);
+    // Match color in parentheses like "(Cinza Escuro)"
+    const corMatch = nome.match(/\(([^)]+)\)\s*$/);
+    if (corMatch) {
+      cor = corMatch[1];
+      nome = nome.substring(0, corMatch.index!).trim();
+    }
+    items.push({ nome_produto: nome, quantidade: parts[i].qty, tamanho, cor });
+  }
+  return items.length ? items : [{ nome_produto: pedidoStr.trim(), quantidade: 1, tamanho: "", cor: "" }];
 }
 
 export default function NovoPedido() {
@@ -116,7 +139,7 @@ export default function NovoPedido() {
 
     setSaving(true);
     try {
-      const numeroPedido = await getNextWPNumber();
+      const numeroPedido = await getNextZAPNumber();
       const pedido = await createPedido.mutateAsync({
         numero_pedido: numeroPedido,
         cliente_nome: clienteNome.trim(),

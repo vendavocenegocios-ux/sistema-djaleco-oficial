@@ -122,18 +122,18 @@ export function useDeletePedidoItem() {
   });
 }
 
-export async function getNextWPNumber(): Promise<string> {
+export async function getNextZAPNumber(): Promise<string> {
   const { data } = await supabase
     .from("pedidos")
     .select("numero_pedido")
-    .like("numero_pedido", "%-WP")
+    .like("numero_pedido", "%-ZAP")
     .order("created_at", { ascending: false })
     .limit(1);
 
   let next = 1;
   if (data?.length) {
-    const match = data[0].numero_pedido.match(/^(\d+)-WP$/);
+    const match = data[0].numero_pedido.match(/^(\d+)-ZAP$/);
     if (match) next = parseInt(match[1], 10) + 1;
   }
-  return `${String(next).padStart(3, "0")}-WP`;
+  return `${String(next).padStart(3, "0")}-ZAP`;
 }
