@@ -1,41 +1,57 @@
 
 
-# Plano: Produtos no Novo Pedido, SuperFrete, Mascaras e Correções
+# Plano: Completar pedido com valores, pagamento e corrigir copia WhatsApp
 
-## Problemas identificados
+## 3 problemas + 1 pergunta
 
-### Bug critico: Produtos nao carregam no formulario
-A Edge Function `nuvemshop-products` retorna o array diretamente (`[{...}, {...}]`), mas `useNuvemProducts` faz `return data?.products || []` — `data.products` e `undefined`, resultado: lista vazia. Alem disso, tamanhos como "M (42)", "G (44)" estao sendo classificados como cores porque o `KNOWN_SIZES` so verifica match exato.
+### 1. Copia WhatsApp nao inclui tamanho e cor
+**Arquivo:** `src/pages/Pedidos.tsx` linha 99-101
 
-## Solucoes
+Hoje: `2x Scrub Samara, 2x Scrub Samara`
+Corrigir para: `2x Scrub Samara (Lilás) GG (46), 2x Scrub Samara (Rosa) M (42)`
 
-### 1. Corrigir carregamento de produtos (bug)
-**`src/pages/NovoPedido.tsx`** — na funcao `useNuvemProducts`, trocar `return data?.products || []` por `return Array.isArray(data) ? data : (data?.products || [])`.
+Alterar o `pedidoDesc` para incluir cor e tamanho de cada item.
 
-### 2. Corrigir classificacao de tamanhos na Edge Function
-**`supabase/functions/nuvemshop-products/index.ts`** — alem do match exato em KNOWN_SIZES, verificar se o valor comeca com um tamanho conhecido (regex: `/^(PP|P|M|G|GG|XG|EG)\b/i`). Valores como "M (42)", "PP (36)" serao classificados como tamanhos. Tambem adicionar `price` (menor preco entre variantes) ao retorno.
+### 2. Valor bruto zerado — auto-calcular a partir dos precos dos produtos
 
-### 3. Mascaras de celular e CPF/CNPJ
-**`src/pages/NovoPedido.tsx`** — adicionar funcoes de mascara:
-- Celular: `(DD) 9XXXX-XXXX` — formata ao digitar
-- CPF/CNPJ: `XXX.XXX.XXX-XX` ou `XX.XXX.XXX/XXXX-XX` — detecta automaticamente pelo tamanho
+**Migration:** Adicionar coluna `preco_unitario numeric` na tabela `pedido_itens` para guardar o preco de cada item.
 
-### 4. SuperFrete — rastreio e data de entrega
-**`supabase/functions/superfrete-tracking/index.ts`** — nova Edge Function que:
-- Recebe `pedido_id` ou `rastreio_codigo`
-- Consulta API SuperFrete para obter status de rastreio e data de entrega
-- Atualiza `rastreio_codigo` e `data_entrega` na tabela `pedidos`
-- Quando etapa = "Entregue", preenche `data_entrega` com a data do SuperFrete
+**`src/pages/NovoPedido.tsx`:**
+- Ao selecionar produto no combobox, guardar `price` do produto Nuvemshop no item
+- Calcular `valor_bruto` automaticamente: soma de `quantidade * preco_unitario` de todos os itens
+- Exibir preco unitario ao lado de cada item
+- O usuario pode ainda editar o valor bruto manualmente se quiser
 
-**`src/pages/PedidoDetalhe.tsx`** — exibir rastreio e data de entrega. Botao para consultar SuperFrete.
+**`src/pages/PedidoDetalhe.tsx`:**
+- Exibir preco unitario de cada item na lista de itens
 
-### 5. Calculo de frete via SuperFrete (exploratorio)
-Sera avaliado se a API do SuperFrete permite calculo previo de frete com CEP de destino + peso. Se possivel, ao preencher CEP no formulario, calcular frete automaticamente. Caso contrario, manter campo manual.
+### 3. Campos de pagamento
+
+**Migration:** Adicionar colunas na tabela `pedidos`:
+- `forma_pagamento text` (PIX, Cartao de Credito, etc.)
+- `parcelas integer default 1`
+
+O campo `status_pagamento` ja existe (default 'pendente').
+
+**`src/pages/NovoPedido.tsx`:**
+- Adicionar Select para status de pagamento: "Pendente" / "Recebido"
+- Adicionar Select para forma de pagamento: "PIX" / "Cartao de Credito"
+- Se cartao, mostrar campo de parcelas (1x a 12x)
+- Pedido com status "recebido" vai para a aba principal
+
+**`src/pages/PedidoDetalhe.tsx`:**
+- Exibir e permitir editar status de pagamento e forma de pagamento
+
+### 4. SuperFrete — como funciona
+
+A integracao ja esta implementada. Funciona assim:
+- Quando um pedido tem `rastreio_codigo` ou `superfrete_order_id`, o botao "Consultar SuperFrete" na tela do pedido consulta a API
+- Se o pacote foi entregue, atualiza automaticamente a etapa para "Entregue" e preenche `data_entrega`
+- Para pedidos do WhatsApp, o codigo de rastreio precisa ser preenchido manualmente no pedido (ou vira do SuperFrete se o envio for feito por la)
 
 ### Arquivos afetados
-- `supabase/functions/nuvemshop-products/index.ts` — corrigir sizes, adicionar price
-- `src/pages/NovoPedido.tsx` — fix useNuvemProducts, mascaras telefone/CPF, exibir preco do produto
-- `supabase/functions/superfrete-tracking/index.ts` — nova Edge Function
-- `src/pages/PedidoDetalhe.tsx` — exibir rastreio/entrega, botao SuperFrete
-- `supabase/config.toml` — registrar nova function
+- `src/pages/Pedidos.tsx` — corrigir copia WhatsApp com tamanho/cor
+- `src/pages/NovoPedido.tsx` — preco unitario, calculo automatico valor bruto, campos pagamento
+- `src/pages/PedidoDetalhe.tsx` — exibir preco unitario, status/forma pagamento
+- Migration SQL — `preco_unitario` em `pedido_itens`, `forma_pagamento` e `parcelas` em `pedidos`
 
