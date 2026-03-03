@@ -87,6 +87,7 @@ export type Database = {
           id: string
           nome_produto: string
           pedido_id: string
+          preco_unitario: number | null
           quantidade: number
           tamanho: string | null
         }
@@ -96,6 +97,7 @@ export type Database = {
           id?: string
           nome_produto: string
           pedido_id: string
+          preco_unitario?: number | null
           quantidade?: number
           tamanho?: string | null
         }
@@ -105,6 +107,7 @@ export type Database = {
           id?: string
           nome_produto?: string
           pedido_id?: string
+          preco_unitario?: number | null
           quantidade?: number
           tamanho?: string | null
         }
@@ -136,12 +139,14 @@ export type Database = {
           estado: string | null
           etapa_entrada_em: string | null
           etapa_producao: string | null
+          forma_pagamento: string | null
           frete: number
           id: string
           numero_pedido: string
           nuvemshop_order_id: number | null
           observacoes_pedido: string | null
           origem: string
+          parcelas: number | null
           rastreio_codigo: string | null
           status_pagamento: string
           superfrete_order_id: string | null
@@ -168,12 +173,14 @@ export type Database = {
           estado?: string | null
           etapa_entrada_em?: string | null
           etapa_producao?: string | null
+          forma_pagamento?: string | null
           frete?: number
           id?: string
           numero_pedido: string
           nuvemshop_order_id?: number | null
           observacoes_pedido?: string | null
           origem?: string
+          parcelas?: number | null
           rastreio_codigo?: string | null
           status_pagamento?: string
           superfrete_order_id?: string | null
@@ -200,12 +207,14 @@ export type Database = {
           estado?: string | null
           etapa_entrada_em?: string | null
           etapa_producao?: string | null
+          forma_pagamento?: string | null
           frete?: number
           id?: string
           numero_pedido?: string
           nuvemshop_order_id?: number | null
           observacoes_pedido?: string | null
           origem?: string
+          parcelas?: number | null
           rastreio_codigo?: string | null
           status_pagamento?: string
           superfrete_order_id?: string | null

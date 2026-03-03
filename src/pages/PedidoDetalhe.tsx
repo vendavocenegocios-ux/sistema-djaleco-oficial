@@ -133,7 +133,7 @@ export default function PedidoDetalhe() {
 
           {/* Valores */}
           <Card>
-            <CardHeader><CardTitle className="text-base">Valores</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Valores e Pagamento</CardTitle></CardHeader>
             <CardContent>
               <dl className="space-y-3 text-sm">
                 <div className="flex justify-between"><dt className="text-muted-foreground">Valor Bruto</dt><dd className="font-medium">{formatCurrency(Number(pedido.valor_bruto))}</dd></div>
@@ -142,6 +142,50 @@ export default function PedidoDetalhe() {
                 <div className="flex justify-between"><dt className="text-muted-foreground">Comissão</dt><dd>{formatCurrency(Number(pedido.comissao))}</dd></div>
                 <div className="flex justify-between border-t pt-3"><dt className="font-medium">Valor Líquido</dt><dd className="font-bold text-primary">{formatCurrency(Number(pedido.valor_liquido))}</dd></div>
               </dl>
+              <div className="mt-4 pt-4 border-t space-y-3">
+                <div>
+                  <dt className="text-muted-foreground text-sm mb-1">Status do Pagamento</dt>
+                  <Select
+                    value={(pedido as any).status_pagamento || "pendente"}
+                    onValueChange={(v) => { if (!id) return; updatePedido.mutate({ id, status_pagamento: v }, { onSuccess: () => toast.success("Status atualizado!") }); }}
+                  >
+                    <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pendente">Pendente</SelectItem>
+                      <SelectItem value="recebido">Recebido</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground text-sm mb-1">Forma de Pagamento</dt>
+                  <Select
+                    value={(pedido as any).forma_pagamento || ""}
+                    onValueChange={(v) => { if (!id) return; updatePedido.mutate({ id, forma_pagamento: v } as any, { onSuccess: () => toast.success("Forma de pagamento atualizada!") }); }}
+                  >
+                    <SelectTrigger className="w-48"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PIX">PIX</SelectItem>
+                      <SelectItem value="Cartão de Crédito">Cartão de Crédito</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {(pedido as any).forma_pagamento === "Cartão de Crédito" && (
+                  <div>
+                    <dt className="text-muted-foreground text-sm mb-1">Parcelas</dt>
+                    <Select
+                      value={String((pedido as any).parcelas || 1)}
+                      onValueChange={(v) => { if (!id) return; updatePedido.mutate({ id, parcelas: parseInt(v) } as any, { onSuccess: () => toast.success("Parcelas atualizadas!") }); }}
+                    >
+                      <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <SelectItem key={i + 1} value={String(i + 1)}>{i + 1}x</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -197,6 +241,9 @@ export default function PedidoDetalhe() {
                     <span>Qtd: {item.quantidade}</span>
                     {item.tamanho && <Badge variant="outline">{item.tamanho}</Badge>}
                     {item.cor && <Badge variant="outline">{item.cor}</Badge>}
+                    {(item as any).preco_unitario > 0 && (
+                      <span className="text-muted-foreground">R$ {Number((item as any).preco_unitario).toFixed(2)}</span>
+                    )}
                   </div>
                 ))}
               </div>

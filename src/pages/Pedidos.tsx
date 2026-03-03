@@ -97,7 +97,12 @@ export default function Pedidos() {
       const cep = (p as any).cep || cliente?.cep || "";
 
       const pedidoDesc = itens
-        .map((i) => `${i.quantidade}x ${i.nome_produto}`)
+        .map((i) => {
+          let desc = `${i.quantidade}x ${i.nome_produto}`;
+          if (i.cor) desc += ` (${i.cor})`;
+          if (i.tamanho) desc += ` ${i.tamanho}`;
+          return desc;
+        })
         .join(", ") || "";
 
       const texto = [

@@ -1,5 +1,5 @@
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ interface ItemForm {
   quantidade: number;
   tamanho: string;
   cor: string;
-  // track selected product for dropdowns
+  preco_unitario: number;
   _product?: NuvemProduct;
 }
 
@@ -98,9 +98,9 @@ function parseItens(pedidoStr: string): ItemForm[] {
       cor = corMatch[1];
       nome = nome.substring(0, corMatch.index!).trim();
     }
-    items.push({ nome_produto: nome, quantidade: parts[i].qty, tamanho, cor });
+    items.push({ nome_produto: nome, quantidade: parts[i].qty, tamanho, cor, preco_unitario: 0 });
   }
-  return items.length ? items : [{ nome_produto: pedidoStr.trim(), quantidade: 1, tamanho: "", cor: "" }];
+  return items.length ? items : [{ nome_produto: pedidoStr.trim(), quantidade: 1, tamanho: "", cor: "", preco_unitario: 0 }];
 }
 
 function maskPhone(value: string): string {
@@ -113,13 +113,11 @@ function maskPhone(value: string): string {
 function maskCpfCnpj(value: string): string {
   const digits = value.replace(/\D/g, "").slice(0, 14);
   if (digits.length <= 11) {
-    // CPF: XXX.XXX.XXX-XX
     if (digits.length <= 3) return digits;
     if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
     if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
     return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
   }
-  // CNPJ: XX.XXX.XXX/XXXX-XX
   if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`;
   if (digits.length <= 8) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`;
   if (digits.length <= 12) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`;
@@ -154,11 +152,23 @@ export default function NovoPedido() {
   const [cep, setCep] = useState("");
   const [documento, setDocumento] = useState("");
   const [valorBruto, setValorBruto] = useState("");
+  const [valorBrutoManual, setValorBrutoManual] = useState(false);
   const [frete, setFrete] = useState("");
   const [observacoes, setObservacoes] = useState("");
-  const [itens, setItens] = useState<ItemForm[]>([{ nome_produto: "", quantidade: 1, tamanho: "", cor: "" }]);
+  const [statusPagamento, setStatusPagamento] = useState("pendente");
+  const [formaPagamento, setFormaPagamento] = useState("");
+  const [parcelas, setParcelas] = useState("1");
+  const [itens, setItens] = useState<ItemForm[]>([{ nome_produto: "", quantidade: 1, tamanho: "", cor: "", preco_unitario: 0 }]);
   const [saving, setSaving] = useState(false);
   const [openCombobox, setOpenCombobox] = useState<number | null>(null);
+
+  // Auto-calculate valor bruto from items
+  const valorCalculado = useMemo(() => {
+    return itens.reduce((sum, item) => sum + (item.preco_unitario * item.quantidade), 0);
+  }, [itens]);
+
+  // Sync valor bruto when not manually edited
+  const displayValorBruto = valorBrutoManual ? valorBruto : (valorCalculado > 0 ? valorCalculado.toFixed(2) : valorBruto);
 
   const handleParse = () => {
     if (!whatsappText.trim()) {
@@ -177,15 +187,26 @@ export default function NovoPedido() {
     if (parsed.observacoes) setObservacoes(parsed.observacoes);
     if (parsed.pedido) {
       const parsedItens = parseItens(parsed.pedido);
-      if (parsedItens.length) setItens(parsedItens);
+      // Try to match parsed items to products and get prices
+      const matchedItens = parsedItens.map(item => {
+        const match = products.find(p => normalize(p.name).includes(normalize(item.nome_produto)) || normalize(item.nome_produto).includes(normalize(p.name)));
+        if (match) {
+          return { ...item, _product: match, preco_unitario: match.price || 0 };
+        }
+        return item;
+      });
+      if (matchedItens.length) setItens(matchedItens);
     }
-    if (parsed.valor) setValorBruto(parsed.valor.replace(/[^\d.,]/g, "").replace(",", "."));
+    if (parsed.valor) {
+      setValorBruto(parsed.valor.replace(/[^\d.,]/g, "").replace(",", "."));
+      setValorBrutoManual(true);
+    }
     if (parsed.frete) setFrete(parsed.frete.replace(/[^\d.,]/g, "").replace(",", "."));
     toast.success("Dados preenchidos a partir do WhatsApp!");
   };
 
   const handleAddItem = () => {
-    setItens([...itens, { nome_produto: "", quantidade: 1, tamanho: "", cor: "" }]);
+    setItens([...itens, { nome_produto: "", quantidade: 1, tamanho: "", cor: "", preco_unitario: 0 }]);
   };
 
   const handleRemoveItem = (idx: number) => {
@@ -198,7 +219,7 @@ export default function NovoPedido() {
 
   const handleSelectProduct = (idx: number, product: NuvemProduct) => {
     setItens(itens.map((item, i) =>
-      i === idx ? { ...item, nome_produto: product.name, _product: product, tamanho: "", cor: "" } : item
+      i === idx ? { ...item, nome_produto: product.name, _product: product, tamanho: "", cor: "", preco_unitario: product.price || 0 } : item
     ));
     setOpenCombobox(null);
   };
@@ -213,6 +234,8 @@ export default function NovoPedido() {
       return;
     }
 
+    const finalValorBruto = parseFloat(displayValorBruto) || 0;
+
     setSaving(true);
     try {
       const numeroPedido = await getNextZAPNumber();
@@ -226,12 +249,15 @@ export default function NovoPedido() {
         estado: estado.trim() || null,
         cep: cep.trim() || null,
         origem: "whatsapp",
-        valor_bruto: parseFloat(valorBruto) || 0,
+        valor_bruto: finalValorBruto,
         frete: parseFloat(frete) || 0,
-        valor_liquido: (parseFloat(valorBruto) || 0) - (parseFloat(frete) || 0),
+        valor_liquido: finalValorBruto - (parseFloat(frete) || 0),
         etapa_producao: "Planejamento",
         data_pedido: new Date().toISOString(),
         observacoes_pedido: observacoes.trim() || null,
+        status_pagamento: statusPagamento,
+        forma_pagamento: formaPagamento || null,
+        parcelas: formaPagamento === "Cartão de Crédito" ? parseInt(parcelas) : 1,
       } as any);
 
       for (const item of itens.filter((i) => i.nome_produto.trim())) {
@@ -241,7 +267,8 @@ export default function NovoPedido() {
           quantidade: item.quantidade,
           tamanho: item.tamanho.trim() || null,
           cor: item.cor.trim() || null,
-        });
+          preco_unitario: item.preco_unitario || 0,
+        } as any);
       }
 
       toast.success(`Pedido ${numeroPedido} criado!`);
@@ -310,14 +337,64 @@ export default function NovoPedido() {
               <Label htmlFor="documento">CPF/CNPJ</Label>
               <Input id="documento" value={documento} onChange={(e) => setDocumento(maskCpfCnpj(e.target.value))} placeholder="000.000.000-00" />
             </div>
+          </div>
+        </Card>
+
+        {/* Valores e Pagamento */}
+        <Card className="p-3 sm:p-4 space-y-4">
+          <Label className="text-sm font-semibold">Valores e Pagamento</Label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="valorBruto">Valor Bruto (R$)</Label>
-              <Input id="valorBruto" type="number" step="0.01" value={valorBruto} onChange={(e) => setValorBruto(e.target.value)} />
+              <Input
+                id="valorBruto"
+                type="number"
+                step="0.01"
+                value={displayValorBruto}
+                onChange={(e) => { setValorBruto(e.target.value); setValorBrutoManual(true); }}
+                className={!valorBrutoManual && valorCalculado > 0 ? "border-primary/50" : ""}
+              />
+              {!valorBrutoManual && valorCalculado > 0 && (
+                <p className="text-xs text-muted-foreground">Calculado automaticamente dos itens</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="frete">Frete (R$)</Label>
               <Input id="frete" type="number" step="0.01" value={frete} onChange={(e) => setFrete(e.target.value)} />
             </div>
+            <div className="space-y-1.5">
+              <Label>Status do Pagamento</Label>
+              <Select value={statusPagamento} onValueChange={setStatusPagamento}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="recebido">Recebido</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Forma de Pagamento</Label>
+              <Select value={formaPagamento} onValueChange={setFormaPagamento}>
+                <SelectTrigger><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PIX">PIX</SelectItem>
+                  <SelectItem value="Cartão de Crédito">Cartão de Crédito</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {formaPagamento === "Cartão de Crédito" && (
+              <div className="space-y-1.5">
+                <Label>Parcelas</Label>
+                <Select value={parcelas} onValueChange={setParcelas}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>{i + 1}x</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -387,8 +464,8 @@ export default function NovoPedido() {
                   </Popover>
                 </div>
 
-                {/* Qty + Size + Color row */}
-                <div className="grid grid-cols-3 gap-2">
+                {/* Qty + Size + Color + Price row */}
+                <div className="grid grid-cols-4 gap-2">
                   <div className="space-y-1">
                     <Label className="text-xs">Qtd</Label>
                     <Input
@@ -439,14 +516,30 @@ export default function NovoPedido() {
                       />
                     )}
                   </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Preço Unit.</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={item.preco_unitario || ""}
+                      onChange={(e) => handleItemChange(idx, "preco_unitario", parseFloat(e.target.value) || 0)}
+                      className="h-9"
+                      placeholder="0.00"
+                    />
+                  </div>
                 </div>
 
-                {/* Remove button */}
-                <div className="flex justify-end">
+                {/* Item subtotal + Remove */}
+                <div className="flex items-center justify-between">
+                  {item.preco_unitario > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      Subtotal: R$ {(item.preco_unitario * item.quantidade).toFixed(2)}
+                    </span>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 text-xs text-destructive"
+                    className="h-7 text-xs text-destructive ml-auto"
                     onClick={() => handleRemoveItem(idx)}
                     disabled={itens.length <= 1}
                   >
