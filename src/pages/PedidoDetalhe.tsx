@@ -25,6 +25,18 @@ export default function PedidoDetalhe() {
 
   const vendedor = vendedores?.find((v) => v.id === pedido?.vendedor_id);
 
+  const handleVendedorChange = (vendedorId: string) => {
+    if (!id) return;
+    const v = vendedores?.find((vd) => vd.id === vendedorId);
+    if (!v) return;
+    const base = Number(pedido?.valor_bruto || 0) - Number(pedido?.taxa_pagarme || 0) - Number(pedido?.frete || 0);
+    const comissao = base > 0 ? base * (v.taxa_comissao / 100) : 0;
+    updatePedido.mutate(
+      { id, vendedor_id: vendedorId, comissao },
+      { onSuccess: () => toast.success("Vendedor atualizado!") }
+    );
+  };
+
   const handleEtapaChange = (etapa: string) => {
     if (!id) return;
     updatePedido.mutate(
@@ -63,7 +75,15 @@ export default function PedidoDetalhe() {
                 <div><dt className="text-muted-foreground">Cidade/Estado</dt><dd>{[pedido.cidade, pedido.estado].filter(Boolean).join("/") || "—"}</dd></div>
                 <div><dt className="text-muted-foreground">Origem</dt><dd><Badge variant="outline">{pedido.origem}</Badge></dd></div>
                 <div><dt className="text-muted-foreground">Data do Pedido</dt><dd>{format(new Date(pedido.data_pedido), "dd/MM/yyyy")}</dd></div>
-                <div><dt className="text-muted-foreground">Vendedor</dt><dd>{vendedor?.nome || "—"}</dd></div>
+                <div>
+                  <dt className="text-muted-foreground mb-1">Vendedor</dt>
+                  <Select value={pedido.vendedor_id || ""} onValueChange={handleVendedorChange}>
+                    <SelectTrigger className="w-48"><SelectValue placeholder="Selecionar vendedor" /></SelectTrigger>
+                    <SelectContent>
+                      {vendedores?.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome} ({v.taxa_comissao}%)</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div><dt className="text-muted-foreground">Rastreio</dt><dd>{pedido.rastreio_codigo || "—"}</dd></div>
                 <div>
                   <dt className="text-muted-foreground mb-1">Etapa de Produção</dt>

@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 const NUVEMSHOP_API = "https://api.tiendanube.com/v1";
+const WILLIAM_VENDEDOR_ID = "97f16c11-121d-47d3-9212-ece04cbcb348";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -90,6 +91,17 @@ Deno.serve(async (req) => {
     const taxaPagarme = parseFloat(order.gateway_fee) || 0;
     const rastreioCodigo = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
 
+    // Fetch William's commission rate
+    const { data: williamData } = await supabase
+      .from("vendedores")
+      .select("taxa_comissao")
+      .eq("id", WILLIAM_VENDEDOR_ID)
+      .single();
+    const taxaComissaoWilliam = williamData?.taxa_comissao ?? 10;
+
+    const baseComissao = valorBruto - taxaPagarme - frete;
+    const comissao = baseComissao > 0 ? baseComissao * (taxaComissaoWilliam / 100) : 0;
+
     let etapa = "Planejamento";
     if (order.status === "closed") etapa = "Entregue";
     else if (order.shipping_status === "shipped") etapa = "Despachado";
@@ -110,6 +122,8 @@ Deno.serve(async (req) => {
       valor_liquido: valorBruto - frete - taxaPagarme,
       rastreio_codigo: rastreioCodigo,
       etapa_producao: etapa,
+      vendedor_id: WILLIAM_VENDEDOR_ID,
+      comissao,
     };
 
     const { data: existing } = await supabase
