@@ -7,13 +7,15 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import djalecoLogo from "@/assets/logo_Djaleco.png";
-import { LogIn } from "lucide-react";
+import { LogIn, Download } from "lucide-react";
+import { usePWAInstall } from "@/hooks/usePWA";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { canInstall, install } = usePWAInstall();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +33,13 @@ export default function Login() {
     navigate("/", { replace: true });
   };
 
+  const handleInstall = async () => {
+    const accepted = await install();
+    if (accepted) {
+      toast.success("App instalado com sucesso!");
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <Card className="w-full max-w-sm">
@@ -38,7 +47,7 @@ export default function Login() {
           <img src={djalecoLogo} alt="Djaleco" className="h-24 w-auto mx-auto object-contain" />
           <CardTitle className="text-xl">Entrar no sistema</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -67,6 +76,17 @@ export default function Login() {
               {loading ? "Entrando..." : "Entrar"}
             </Button>
           </form>
+
+          {canInstall && (
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              onClick={handleInstall}
+            >
+              <Download className="h-4 w-4" />
+              Instalar Aplicativo
+            </Button>
+          )}
         </CardContent>
       </Card>
     </div>
