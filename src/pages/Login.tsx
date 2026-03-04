@@ -42,15 +42,15 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-black px-4">
-      <Card className="w-full max-w-sm bg-card">
+      <Card className="w-full max-w-sm bg-black border-neutral-800">
         <CardHeader className="text-center space-y-4">
           <img src={djalecoLogo} alt="D.Jaleco Sistema de Gestão" className="h-48 w-auto mx-auto object-contain" />
-          <CardTitle className="text-xl">Entrar no sistema</CardTitle>
+          <CardTitle className="text-xl text-white">Entrar no sistema</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-neutral-300">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -58,10 +58,11 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                className="bg-neutral-900 border-neutral-700 text-white placeholder:text-neutral-500"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Senha</Label>
+              <Label htmlFor="password" className="text-neutral-300">Senha</Label>
               <Input
                 id="password"
                 type="password"
@@ -69,6 +70,7 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                className="bg-neutral-900 border-neutral-700 text-white placeholder:text-neutral-500"
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
