@@ -1,62 +1,30 @@
 
 
-## Plano: Autenticação com Perfis Admin e Usuário
+## Plano: Corrigir Drag & Drop Mobile + Botão PWA
 
-### Resumo
-Adicionar autenticação ao app com dois perfis:
-- **Admin** (wnogueira@hotmail.com) — acesso total, pode editar/excluir dados, manutenção
-- **Usuário** (apaulaalt@gmail.com) — acesso de consulta e criação de pedidos, sem poder excluir dados ou alterar configurações
+### Problema 1: Drag & Drop no Mobile
+O card tem um `<Link>` dentro do elemento draggable. No mobile, ao pressionar (long press), o navegador intercepta e abre o menu de contexto do link (como mostra a segunda imagem). O `touchAction: "none"` no div pai não impede o comportamento do `<Link>` dentro dele.
 
-### Implementação
+**Solução**: Separar a interação de toque (drag) da navegação (tap):
+- Remover o `<Link>` wrapper do card
+- No **tap rápido** (toque < 200ms sem mover), navegar programaticamente via `useNavigate`
+- No **long press ou arrasto**, iniciar o drag (sem abrir link)
+- Adicionar feedback visual durante o drag (opacity, scale)
+- Usar `e.preventDefault()` no `touchStart` para evitar o menu de contexto do navegador no link
 
-#### 1. Banco de Dados (Migrations)
-- Criar enum `app_role` com valores `admin` e `user`
-- Criar tabela `user_roles` (user_id, role) com RLS e função `has_role()` security definer
-- Criar tabela `profiles` (id, email, nome, created_at) com trigger para auto-criar perfil no signup
+**Arquivo**: `src/pages/Producao.tsx`
 
-#### 2. Criar Usuários
-- Criar os dois usuários via Supabase Auth (signup)
-- Inserir roles: `admin` para wnogueira, `user` para apaulaalt
+### Problema 2: Botão PWA não aparece
+O `beforeinstallprompt` só é disparado pelo navegador quando certas condições são atendidas (HTTPS, manifest válido, service worker registrado, sem estar já instalado). No preview do Lovable ou em HTTP, o evento nunca dispara, então `canInstall` fica `false`.
 
-#### 3. Página de Login (`src/pages/Login.tsx`)
-- Formulário simples com email + senha
-- Redireciona para Dashboard após login
-- Sem opção de cadastro (usuários são criados pelo admin)
+**Solução**: O botão já está implementado corretamente. O problema é que no ambiente de preview (Lovable) o PWA não é oferecido. Em produção (app.djaleco.com.br via Vercel com HTTPS), ele deve funcionar. Para garantir visibilidade, vou:
+- Adicionar um fallback: se o navegador suportar PWA mas o prompt não apareceu em 3 segundos, mostrar um banner com instruções manuais ("Adicione à tela inicial" via menu do navegador)
+- Isso cobre iOS Safari que nunca dispara `beforeinstallprompt`
 
-#### 4. Auth Context (`src/hooks/useAuth.ts`)
-- Hook com `onAuthStateChange` + `getSession`
-- Expõe `user`, `role`, `signOut`, `loading`
-- Consulta `user_roles` para determinar o papel
+**Arquivos**: `src/hooks/usePWA.ts`, `src/pages/Login.tsx`
 
-#### 5. Rotas Protegidas (`src/components/ProtectedRoute.tsx`)
-- Componente wrapper que redireciona para `/login` se não autenticado
-- Todas as rotas existentes ficam protegidas
-
-#### 6. Controle de Acesso por Role
-- **Admin**: acesso total (tudo que já existe)
-- **User (Ana Paula)**: 
-  - Pode ver Dashboard, Pedidos, Clientes, Produção, Produtos
-  - Pode criar pedidos
-  - **Não pode**: excluir pedidos/clientes, acessar página Vendedores, editar configurações financeiras (comissões)
-  - Botões de exclusão e edição de vendedores ficam ocultos/desabilitados
-
-#### 7. Sidebar e Layout
-- Adicionar botão de logout no `AppSidebar`
-- Ocultar itens de menu restritos conforme o role (ex: Vendedores só para admin)
-
-### Arquivos a Criar
-- `src/pages/Login.tsx`
-- `src/hooks/useAuth.ts`
-- `src/components/ProtectedRoute.tsx`
-
-### Arquivos a Modificar
-- `src/App.tsx` — adicionar rota `/login` e proteger demais rotas
-- `src/components/layout/AppSidebar.tsx` — botão logout + filtrar menu por role
-- `src/components/layout/AppLayout.tsx` — exibir nome do usuário no header
-- Páginas com ações destrutivas (Pedidos, Clientes, Vendedores, Financeiro) — ocultar botões conforme role
-
-### Segurança
-- Roles armazenados em tabela separada (`user_roles`), nunca no profiles
-- Função `has_role()` com `SECURITY DEFINER` para evitar recursão RLS
-- Senhas nunca armazenadas no código — usuários criados via Supabase Auth
+### Resumo de Mudanças
+1. **`src/pages/Producao.tsx`**: Substituir `<Link>` por tap programático + melhorar touch drag com delay de 150ms para distinguir tap vs drag
+2. **`src/hooks/usePWA.ts`**: Adicionar detecção de iOS e fallback para instrução manual
+3. **`src/pages/Login.tsx`**: Mostrar botão/instrução de instalação para iOS (que não suporta `beforeinstallprompt`)
 
