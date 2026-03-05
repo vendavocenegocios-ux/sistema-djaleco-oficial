@@ -129,7 +129,6 @@ export default function Pedidos() {
 
       const texto = [
         `*Data: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}* | *Pedido: #${p.numero_pedido} - ${origemLabel}*`,
-        ``;
         ``,
         `Nome: ${p.cliente_nome}`,
         `Celular: ${p.cliente_telefone || ""}`,
