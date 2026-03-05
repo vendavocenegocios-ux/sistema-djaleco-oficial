@@ -119,8 +119,8 @@ export default function Pedidos() {
       const pedidoDesc = itens
         .map((i) => {
           let desc = `${i.quantidade}x ${i.nome_produto}`;
-          if (i.cor) desc += ` (${i.cor})`;
-          if (i.tamanho) desc += ` ${i.tamanho}`;
+          const extras = [i.cor, i.tamanho].filter(Boolean).join(", ");
+          if (extras) desc += ` (${extras})`;
           return desc;
         })
         .join(", ") || "";
@@ -128,7 +128,8 @@ export default function Pedidos() {
       const origemLabel = p.origem === "whatsapp" ? "Zap" : "Site";
 
       const texto = [
-        `*Data: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}* | *Pedido: #${p.numero_pedido} - ${origemLabel}*`,
+        `*Data: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}*`,
+        `*Pedido: #${p.numero_pedido} - ${origemLabel}*`,
         ``,
         `Nome: ${p.cliente_nome}`,
         `Celular: ${p.cliente_telefone || ""}`,
