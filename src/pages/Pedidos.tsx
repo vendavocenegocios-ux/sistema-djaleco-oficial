@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Pedido } from "@/hooks/usePedidos";
 
-const ETAPAS = ["Planejamento", "Corte", "Costura", "Acabamento", "Embalagem", "Despachado", "Entregue"];
+const ETAPAS = ["Comercial", "Planejamento", "Corte", "Costura", "Acabamento", "Embalagem", "Despachado", "Entregue"];
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -126,6 +126,9 @@ export default function Pedidos() {
         .join(", ") || "";
 
       const texto = [
+        `*${format(new Date(p.data_pedido), "dd/MM/yyyy")}*`,
+        `#${p.numero_pedido}`,
+        ``,
         `NOME: ${p.cliente_nome}`,
         `CELULAR: ${p.cliente_telefone || ""}`,
         `PROFISSÃO: ${profissao}`,
@@ -135,12 +138,19 @@ export default function Pedidos() {
         `ESTADO: ${p.estado || ""}`,
         `CEP: ${cep}`,
         `CPF/CNPJ: ${documento}`,
-        `DATA DO PEDIDO: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}`,
         `PEDIDO: ${pedidoDesc}`,
       ].join("\n");
 
       await navigator.clipboard.writeText(texto);
       toast.success("Copiado para a área de transferência!");
+
+      // Auto-advance from Comercial to Planejamento
+      if (p.etapa_producao === "Comercial") {
+        updatePedido.mutate(
+          { id: p.id, etapa_producao: "Planejamento", etapa_entrada_em: new Date().toISOString() },
+          { onSuccess: () => toast.success("Etapa avançada para Planejamento") }
+        );
+      }
     } catch {
       toast.error("Erro ao copiar dados do pedido");
     }
