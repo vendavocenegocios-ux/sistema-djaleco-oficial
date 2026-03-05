@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Pedido } from "@/hooks/usePedidos";
 
-const ETAPAS = ["Planejamento", "Corte", "Costura", "Acabamento", "Embalagem", "Despachado", "Entregue"];
+const ETAPAS = ["Comercial", "Planejamento", "Corte", "Costura", "Acabamento", "Embalagem", "Despachado", "Entregue"];
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
