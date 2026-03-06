@@ -174,11 +174,7 @@ Deno.serve(async (req) => {
       const comissao = baseComissao > 0 ? baseComissao * (taxaComissaoWilliam / 100) : 0;
       const rastreioCodigo = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
 
-      let etapa = "Planejamento";
-      if (order.status === "open" && order.payment_status === "paid") etapa = "Planejamento";
-      else if (order.status === "closed") etapa = "Entregue";
-      else if (order.shipping_status === "shipped") etapa = "Despachado";
-      else if (order.status === "cancelled") etapa = "Cancelado";
+      const etapa = "Comercial";
 
       const statusPagamento = order.payment_status === "paid" ? "recebido" : "pendente";
 
