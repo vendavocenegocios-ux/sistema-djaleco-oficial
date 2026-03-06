@@ -356,6 +356,10 @@ export default function Financeiro() {
                       <TableHead>Pedido</TableHead>
                       <TableHead>Cliente</TableHead>
                       <TableHead>Vendedor</TableHead>
+                      <TableHead className="text-right">Bruto</TableHead>
+                      <TableHead className="text-right">Frete</TableHead>
+                      <TableHead className="text-right">Pagar.me</TableHead>
+                      <TableHead className="text-right">Líquido</TableHead>
                       <TableHead className="text-right">%</TableHead>
                       <TableHead className="text-right">Comissão</TableHead>
                       <TableHead>Status</TableHead>
@@ -365,7 +369,7 @@ export default function Financeiro() {
                   </TableHeader>
                   <TableBody>
                     {comissoesTodas.length === 0 ? (
-                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
                     ) : (
                       comissoesTodas.map((p) => {
                         const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
@@ -376,6 +380,10 @@ export default function Financeiro() {
                             <TableCell className="font-medium">#{p.numero_pedido}</TableCell>
                             <TableCell>{p.cliente_nome}</TableCell>
                             <TableCell>{vendedorItem?.nome || "—"}</TableCell>
+                            <TableCell className="text-right text-xs">{formatCurrency(Number(p.valor_bruto))}</TableCell>
+                            <TableCell className="text-right text-xs">{formatCurrency(Number(p.frete))}</TableCell>
+                            <TableCell className="text-right text-xs">{formatCurrency(Number(p.taxa_pagarme))}</TableCell>
+                            <TableCell className="text-right text-xs font-medium">{formatCurrency(Number(p.valor_liquido))}</TableCell>
                             <TableCell className="text-right">
                               {isEditing ? (
                                 <div className="flex items-center gap-1 justify-end">
@@ -463,6 +471,12 @@ export default function Financeiro() {
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                      <span>Bruto: <span className="text-foreground font-medium">{formatCurrency(Number(p.valor_bruto))}</span></span>
+                      <span>Frete: <span className="text-foreground font-medium">{formatCurrency(Number(p.frete))}</span></span>
+                      <span>Pagar.me: <span className="text-foreground font-medium">{formatCurrency(Number(p.taxa_pagarme))}</span></span>
+                      <span>Líquido: <span className="text-foreground font-medium">{formatCurrency(Number(p.valor_liquido))}</span></span>
+                    </div>
                     <div className="flex items-center justify-between">
                       {isEditing ? (
                         <div className="flex items-center gap-1">
