@@ -220,10 +220,10 @@ export default function Pedidos() {
               <TableRow>
                 <TableHead>Nº Pedido</TableHead>
                 <TableHead>Cliente</TableHead>
-                <TableHead>Valor Bruto</TableHead>
-                <TableHead>Origem</TableHead>
-                <TableHead>Etapa</TableHead>
                 <TableHead>Data</TableHead>
+                <TableHead>Etapa</TableHead>
+                <TableHead>Origem</TableHead>
+                <TableHead>Valor Bruto</TableHead>
                 <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
@@ -241,8 +241,7 @@ export default function Pedidos() {
                       </Link>
                     </TableCell>
                     <TableCell>{p.cliente_nome}</TableCell>
-                    <TableCell>{formatCurrency(Number(p.valor_bruto))}</TableCell>
-                    <TableCell><Badge variant="outline">{p.origem}</Badge></TableCell>
+                    <TableCell className="text-muted-foreground">{format(new Date(p.data_pedido), "dd/MM/yyyy")}</TableCell>
                     <TableCell>
                       <Select value={p.etapa_producao || ""} onValueChange={(v) => handleEtapaChange(p.id, v)}>
                         <SelectTrigger className="w-[140px] h-8 text-xs">
@@ -255,7 +254,8 @@ export default function Pedidos() {
                         </SelectContent>
                       </Select>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{format(new Date(p.data_pedido), "dd/MM/yyyy")}</TableCell>
+                    <TableCell><Badge variant="outline">{p.origem}</Badge></TableCell>
+                    <TableCell>{formatCurrency(Number(p.valor_bruto))}</TableCell>
                     <TableCell>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleCopyWhatsApp(p)} title="Copiar para WhatsApp">
                         <Copy className="h-4 w-4" />
