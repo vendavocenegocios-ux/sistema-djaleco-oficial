@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import { Search, Plus, RefreshCw, Copy, Truck } from "lucide-react";
+import { Search, Plus, RefreshCw, Copy, Truck, Package } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Pedido } from "@/hooks/usePedidos";
@@ -197,6 +197,12 @@ export default function Pedidos() {
         <span className="text-sm font-semibold">{formatCurrency(Number(p.valor_bruto))}</span>
         <span className="text-xs text-muted-foreground">{format(new Date(p.data_pedido), "dd/MM/yyyy")}</span>
       </div>
+      {p.rastreio_codigo && (
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Package className="h-3.5 w-3.5 text-green-600" />
+          {p.rastreio_codigo}
+        </div>
+      )}
       <Select value={p.etapa_producao || ""} onValueChange={(v) => handleEtapaChange(p.id, v)}>
         <SelectTrigger className="w-full h-8 text-xs">
           <SelectValue placeholder="Etapa" />
@@ -224,14 +230,15 @@ export default function Pedidos() {
                 <TableHead>Etapa</TableHead>
                 <TableHead>Origem</TableHead>
                 <TableHead>Valor Bruto</TableHead>
+                <TableHead>Rastreio</TableHead>
                 <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
               ) : items.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhum pedido encontrado</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhum pedido encontrado</TableCell></TableRow>
               ) : (
                 items.map((p) => (
                   <TableRow key={p.id}>
@@ -256,6 +263,16 @@ export default function Pedidos() {
                     </TableCell>
                     <TableCell><Badge variant="outline">{p.origem}</Badge></TableCell>
                     <TableCell>{formatCurrency(Number(p.valor_bruto))}</TableCell>
+                    <TableCell>
+                      {p.rastreio_codigo ? (
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Package className="h-3.5 w-3.5 text-green-600" />
+                          {p.rastreio_codigo}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/50">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleCopyWhatsApp(p)} title="Copiar para WhatsApp">
                         <Copy className="h-4 w-4" />
