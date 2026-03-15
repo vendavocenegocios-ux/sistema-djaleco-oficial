@@ -621,23 +621,29 @@ export default function Financeiro() {
                           </Button>
                         </div>
                       )}
-                      {!p.comissao_paga && !isEditing && (
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button size="sm" variant="outline" className="h-7 text-xs">
-                              <CalendarIcon className="h-3 w-3 mr-1" />Pagar
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="end">
-                            <Calendar
-                              mode="single"
-                              selected={new Date()}
-                              onSelect={(d) => d && handlePagarComissao(p.id, d)}
-                              initialFocus
-                              className={cn("p-3 pointer-events-auto")}
-                            />
-                          </PopoverContent>
-                        </Popover>
+                      {!isEditing && (
+                        !p.comissao_paga ? (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button size="sm" variant="outline" className="h-7 text-xs">
+                                <CalendarIcon className="h-3 w-3 mr-1" />Pagar
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="end">
+                              <Calendar
+                                mode="single"
+                                selected={new Date()}
+                                onSelect={(d) => d && handlePagarComissao(p.id, d)}
+                                initialFocus
+                                className={cn("p-3 pointer-events-auto")}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        ) : (
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => handleDesmarcarComissao(p.id)}>
+                            Reverter
+                          </Button>
+                        )
                       )}
                     </div>
                     {p.comissao_paga_em && (
