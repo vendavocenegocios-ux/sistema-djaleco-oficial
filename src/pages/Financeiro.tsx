@@ -223,6 +223,13 @@ export default function Financeiro() {
     );
   };
 
+  const handleDesmarcarComissao = (pedidoId: string) => {
+    updatePedido.mutate(
+      { id: pedidoId, comissao_paga: false, comissao_paga_em: null },
+      { onSuccess: () => toast.success("Comissão revertida para pendente!") }
+    );
+  };
+
   // Now saves percentage and recalculates value
   const handleSaveComissao = (pedidoId: string) => {
     const percentual = parseFloat(editValue);
@@ -514,7 +521,10 @@ export default function Financeiro() {
                             </TableCell>
                             <TableCell className="text-right font-medium">{formatCurrency(Number(p.comissao))}</TableCell>
                             <TableCell>
-                              <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-xs">
+                              <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-xs cursor-pointer"
+                                onClick={() => p.comissao_paga ? handleDesmarcarComissao(p.id) : undefined}
+                                title={p.comissao_paga ? "Clique para reverter" : ""}
+                              >
                                 {p.comissao_paga ? "Pago" : "Pendente"}
                               </Badge>
                             </TableCell>
@@ -522,7 +532,7 @@ export default function Financeiro() {
                               {p.comissao_paga_em ? format(new Date(p.comissao_paga_em), "dd/MM/yyyy") : "—"}
                             </TableCell>
                             <TableCell>
-                              {!p.comissao_paga && (
+                              {!p.comissao_paga ? (
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <Button size="sm" variant="outline" className="h-7 text-xs">
@@ -539,6 +549,10 @@ export default function Financeiro() {
                                     />
                                   </PopoverContent>
                                 </Popover>
+                              ) : (
+                                <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => handleDesmarcarComissao(p.id)}>
+                                  Reverter
+                                </Button>
                               )}
                             </TableCell>
                           </TableRow>
@@ -560,8 +574,10 @@ export default function Financeiro() {
                   <Card key={p.id} className="p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-sm">#{p.numero_pedido}</span>
-                      <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-[10px]">
-                        {p.comissao_paga ? "Pago" : "Pendente"}
+                      <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-[10px] cursor-pointer"
+                        onClick={() => p.comissao_paga ? handleDesmarcarComissao(p.id) : undefined}
+                      >
+                        {p.comissao_paga ? "Pago ✕" : "Pendente"}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
@@ -605,23 +621,29 @@ export default function Financeiro() {
                           </Button>
                         </div>
                       )}
-                      {!p.comissao_paga && !isEditing && (
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button size="sm" variant="outline" className="h-7 text-xs">
-                              <CalendarIcon className="h-3 w-3 mr-1" />Pagar
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="end">
-                            <Calendar
-                              mode="single"
-                              selected={new Date()}
-                              onSelect={(d) => d && handlePagarComissao(p.id, d)}
-                              initialFocus
-                              className={cn("p-3 pointer-events-auto")}
-                            />
-                          </PopoverContent>
-                        </Popover>
+                      {!isEditing && (
+                        !p.comissao_paga ? (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button size="sm" variant="outline" className="h-7 text-xs">
+                                <CalendarIcon className="h-3 w-3 mr-1" />Pagar
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="end">
+                              <Calendar
+                                mode="single"
+                                selected={new Date()}
+                                onSelect={(d) => d && handlePagarComissao(p.id, d)}
+                                initialFocus
+                                className={cn("p-3 pointer-events-auto")}
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        ) : (
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => handleDesmarcarComissao(p.id)}>
+                            Reverter
+                          </Button>
+                        )
                       )}
                     </div>
                     {p.comissao_paga_em && (
