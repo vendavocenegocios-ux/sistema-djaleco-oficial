@@ -196,8 +196,11 @@ export default function CarrinhosAbandonados() {
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 />
               )}
-              <Badge variant={webhookUrl === WEBHOOK_OPTIONS[0].value ? "default" : "secondary"} className="shrink-0">
-                {webhookUrl === WEBHOOK_OPTIONS[0].value ? "Produção" : webhookUrl === "__custom__" ? "Custom" : "Teste"}
+              <Button size="sm" onClick={handleSaveWebhook} disabled={!isDirty} className="shrink-0">
+                Salvar
+              </Button>
+              <Badge variant={activeWebhook === WEBHOOK_OPTIONS[0].value ? "default" : "secondary"} className="shrink-0">
+                {activeWebhook === WEBHOOK_OPTIONS[0].value ? "Produção" : activeWebhook === WEBHOOK_OPTIONS[1].value ? "Teste" : "Custom"}
               </Badge>
             </div>
           </CardContent>
