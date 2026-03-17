@@ -18,6 +18,7 @@ import ClienteDetalhe from "./pages/ClienteDetalhe";
 import Financeiro from "./pages/Financeiro";
 import Vendedores from "./pages/Vendedores";
 import Sistema from "./pages/Sistema";
+import CarrinhosAbandonados from "./pages/CarrinhosAbandonados";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
