@@ -86,7 +86,10 @@ export default function CarrinhosAbandonados() {
   const isMobile = useIsMobile();
 
   const handleSendWebhook = async (c: AbandonedCheckout) => {
-    const activeUrl = webhookUrl === "__custom__" ? customWebhook : webhookUrl;
+    if (!activeWebhook) {
+      toast.error("Salve um webhook antes de enviar");
+      return;
+    }
     if (!activeUrl) {
       toast.error("URL do webhook não configurada");
       return;
