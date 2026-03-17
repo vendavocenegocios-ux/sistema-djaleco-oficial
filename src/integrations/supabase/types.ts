@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      cart_recovery_conversations: {
+        Row: {
+          cart_data: Json | null
+          cart_id: string
+          created_at: string | null
+          customer_name: string | null
+          id: string
+          messages: Json | null
+          phone: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          cart_data?: Json | null
+          cart_id: string
+          created_at?: string | null
+          customer_name?: string | null
+          id?: string
+          messages?: Json | null
+          phone: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          cart_data?: Json | null
+          cart_id?: string
+          created_at?: string | null
+          customer_name?: string | null
+          id?: string
+          messages?: Json | null
+          phone?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       clientes: {
         Row: {
           bairro: string | null
