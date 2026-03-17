@@ -331,14 +331,17 @@ export default function CarrinhosAbandonados() {
                     <span className="font-bold">{formatCurrency(c.total)}</span>
                     <div className="flex gap-2">
                       {c.customer.phone && (
-                        <Button variant="ghost" size="sm" asChild>
-                          <a
-                            href={`https://wa.me/${c.customer.phone.replace(/\D/g, "")}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={sendingCartId === c.id}
+                          onClick={() => handleSendWebhook(c)}
+                        >
+                          {sendingCartId === c.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
                             <Phone className="h-4 w-4" />
-                          </a>
+                          )}
                         </Button>
                       )}
                       {c.recovery_url && (
