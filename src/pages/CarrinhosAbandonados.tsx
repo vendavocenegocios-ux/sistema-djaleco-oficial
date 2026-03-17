@@ -78,7 +78,8 @@ export default function CarrinhosAbandonados() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cart_id: String(c.id),
-          phone: c.customer.phone?.replace(/\D/g, "") || "",
+          // Teste: substituir telefone do Fábio para testes
+          phone: c.customer.name === "Fábio Fonseca" ? "5521981089100" : (c.customer.phone?.replace(/\D/g, "") || ""),
           customer_name: c.customer.name,
           total: c.total,
           recovery_url: c.recovery_url || "",
