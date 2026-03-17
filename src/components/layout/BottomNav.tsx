@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingBag, Factory, Package, Users, DollarSign, MoreHorizontal } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, Factory, Package, Users, DollarSign, MoreHorizontal, ShoppingCart } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
