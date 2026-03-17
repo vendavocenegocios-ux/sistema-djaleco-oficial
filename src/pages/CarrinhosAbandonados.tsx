@@ -73,9 +73,9 @@ export default function CarrinhosAbandonados() {
   const isMobile = useIsMobile();
 
   const handleSendWebhook = async (c: AbandonedCheckout) => {
-    const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
-    if (!webhookUrl) {
-      toast.error("URL do webhook não configurada (VITE_N8N_WEBHOOK_URL)");
+    const activeUrl = webhookUrl === "__custom__" ? customWebhook : webhookUrl;
+    if (!activeUrl) {
+      toast.error("URL do webhook não configurada");
       return;
     }
     setSendingCartId(c.id);
