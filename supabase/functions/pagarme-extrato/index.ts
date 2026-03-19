@@ -40,52 +40,53 @@ Deno.serve(async (req) => {
     const auth = btoa(`${PAGARME_API_KEY}:`);
     const size = 100;
 
-    // Fetch charges
-    let allCharges: any[] = [];
-    let page = Number(pageParam);
-    while (true) {
-      let apiUrl = `https://api.pagar.me/core/v5/charges?page=${page}&size=${size}`;
-      if (createdSince) apiUrl += `&created_since=${encodeURIComponent(createdSince)}`;
-      if (createdUntil) apiUrl += `&created_until=${encodeURIComponent(createdUntil)}`;
-
-      const res = await fetch(apiUrl, {
-        headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
-      });
-      if (!res.ok) {
-        const errBody = await res.text();
-        throw new Error(`Pagarme API error [${res.status}]: ${errBody}`);
+    // Helper to paginate
+    async function fetchAllPages(baseUrl: string, maxItems = 5000) {
+      const all: any[] = [];
+      let page = 1;
+      while (true) {
+        const sep = baseUrl.includes("?") ? "&" : "?";
+        const res = await fetch(`${baseUrl}${sep}page=${page}&size=${size}`, {
+          headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
+        });
+        if (!res.ok) {
+          if (page === 1) {
+            const errBody = await res.text();
+            throw new Error(`Pagarme API error [${res.status}]: ${errBody}`);
+          }
+          break;
+        }
+        const json = await res.json();
+        const items = json.data || [];
+        if (!items.length) break;
+        all.push(...items);
+        if (items.length < size) break;
+        page++;
+        if (all.length > maxItems) break;
       }
-      const json = await res.json();
-      const charges = json.data || [];
-      if (!charges.length) break;
-      allCharges = allCharges.concat(charges);
-      if (charges.length < size) break;
-      page++;
-      if (allCharges.length > 2000) break;
+      return all;
     }
 
-    // Fetch payables for the same period to get real fees
-    let allPayables: any[] = [];
-    page = 1;
-    while (true) {
-      let apiUrl = `https://api.pagar.me/core/v5/payables?page=${page}&size=${size}`;
-      if (createdSince) apiUrl += `&created_since=${encodeURIComponent(createdSince)}`;
-      if (createdUntil) apiUrl += `&created_until=${encodeURIComponent(createdUntil)}`;
-
-      const res = await fetch(apiUrl, {
-        headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
-      });
-      if (!res.ok) break;
-      const json = await res.json();
-      const payables = json.data || [];
-      if (!payables.length) break;
-      allPayables = allPayables.concat(payables);
-      if (payables.length < size) break;
-      page++;
-      if (allPayables.length > 5000) break;
+    // Build base URLs with date filters
+    let chargesBaseUrl = `https://api.pagar.me/core/v5/charges?`;
+    let payablesBaseUrl = `https://api.pagar.me/core/v5/payables?`;
+    let balanceOpsBaseUrl = `https://api.pagar.me/core/v5/balance/operations?`;
+    if (createdSince) {
+      const s = encodeURIComponent(createdSince);
+      const u = encodeURIComponent(createdUntil);
+      chargesBaseUrl += `created_since=${s}&created_until=${u}`;
+      payablesBaseUrl += `created_since=${s}&created_until=${u}`;
+      balanceOpsBaseUrl += `created_since=${s}&created_until=${u}`;
     }
 
-    // Build fee map from payables: charge_id -> total fee
+    // Fetch charges, payables, and balance operations in parallel
+    const [allCharges, allPayables, allBalanceOps] = await Promise.all([
+      fetchAllPages(chargesBaseUrl, 2000),
+      fetchAllPages(payablesBaseUrl, 5000),
+      fetchAllPages(balanceOpsBaseUrl, 5000),
+    ]);
+
+    // Build processing fee map from payables: charge_id -> fee
     const feeByChargeId: Record<string, number> = {};
     for (const p of allPayables) {
       if (p.charge_id && p.fee) {
@@ -93,10 +94,42 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Build transfer fee map by distributing TED fees proportionally
+    const transferFeeByChargeId: Record<string, number> = {};
+    const sortedOps = allBalanceOps.sort(
+      (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+    let pendingPayables: { chargeId: string; amount: number }[] = [];
+    for (const op of sortedOps) {
+      if (op.type === "payable" && op.movement_object?.charge_id) {
+        pendingPayables.push({
+          chargeId: op.movement_object.charge_id,
+          amount: (op.movement_object.amount || 0) / 100,
+        });
+      } else if (op.type === "transfer" && op.movement_object?.fee) {
+        const transferFee = op.movement_object.fee / 100;
+        const totalAmount = pendingPayables.reduce((s, p) => s + p.amount, 0);
+        if (totalAmount > 0) {
+          for (const p of pendingPayables) {
+            const share = (p.amount / totalAmount) * transferFee;
+            transferFeeByChargeId[p.chargeId] = (transferFeeByChargeId[p.chargeId] || 0) + share;
+          }
+        }
+        pendingPayables = [];
+      }
+    }
+
+    // Calculate total transfer fees
+    const totalTransferFees = allBalanceOps
+      .filter((op: any) => op.type === "transfer" && op.movement_object?.fee)
+      .reduce((s: number, op: any) => s + (op.movement_object.fee / 100), 0);
+
     // Format charges for frontend
     const formatted = allCharges.map((c: any) => {
       const tx = c.last_transaction || {};
-      const realFee = feeByChargeId[c.id] || 0;
+      const processingFee = feeByChargeId[c.id] || 0;
+      const transferFee = transferFeeByChargeId[c.id] || 0;
+      const totalFee = processingFee + transferFee;
       const amount = (c.amount || 0) / 100;
       const paidAmount = (c.paid_amount || 0) / 100;
 
@@ -107,7 +140,9 @@ Deno.serve(async (req) => {
         status: c.status,
         amount,
         paid_amount: paidAmount,
-        gateway_fee: realFee,
+        gateway_fee: totalFee,
+        processing_fee: processingFee,
+        transfer_fee: transferFee,
         order_code: c.order?.code || c.code || null,
         payment_method: tx.transaction_type || tx.gateway_response?.type || "unknown",
         installments: tx.installments || 1,
@@ -117,13 +152,22 @@ Deno.serve(async (req) => {
     // Summary
     const paidCharges = formatted.filter(c => c.status === "paid");
     const totalBruto = paidCharges.reduce((s, c) => s + c.amount, 0);
+    const totalProcessingFees = paidCharges.reduce((s, c) => s + c.processing_fee, 0);
+    const totalTransferFeesCalc = paidCharges.reduce((s, c) => s + c.transfer_fee, 0);
     const totalTaxas = paidCharges.reduce((s, c) => s + c.gateway_fee, 0);
     const totalLiquido = totalBruto - totalTaxas;
 
     return new Response(
       JSON.stringify({
         charges: formatted,
-        summary: { total_bruto: totalBruto, total_liquido: totalLiquido, total_taxas: totalTaxas, count: formatted.length },
+        summary: {
+          total_bruto: totalBruto,
+          total_liquido: totalLiquido,
+          total_taxas: totalTaxas,
+          total_processing_fees: totalProcessingFees,
+          total_transfer_fees: totalTransferFeesCalc,
+          count: formatted.length,
+        },
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
