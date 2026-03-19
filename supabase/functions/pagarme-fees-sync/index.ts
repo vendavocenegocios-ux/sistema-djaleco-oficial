@@ -167,7 +167,9 @@ Deno.serve(async (req) => {
       if (!match) continue;
 
       // Total taxa = processing fee + transfer fee
-      const taxaPagarme = match.fee + match.transferFee;
+      const taxaPagarme = Math.round((match.fee + match.transferFee) * 100) / 100;
+      // Skip if fee hasn't changed (avoid unnecessary updates on resync)
+      if (resyncAll && Math.abs(taxaPagarme - Number(pedido.taxa_pagarme)) < 0.01) continue;
       const valorBruto = Number(pedido.valor_bruto);
       const frete = Number(pedido.frete);
       const valorLiquido = valorBruto - frete - taxaPagarme;
