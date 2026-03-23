@@ -27,6 +27,7 @@ function isPago(p: any) {
 }
 
 export default function Pedidos() {
+  const queryClient = useQueryClient();
   const { data: pedidos, isLoading } = usePedidos();
   const updatePedido = useUpdatePedido();
   const [search, setSearch] = useState("");
