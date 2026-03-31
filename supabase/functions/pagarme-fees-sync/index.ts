@@ -179,19 +179,9 @@ Deno.serve(async (req) => {
     let updated = 0;
     const samples: string[] = [];
 
-    // Debug: log fee map keys for troubleshooting
-    const feeMapKeys = Object.keys(feeByNuvemshopId).slice(0, 10);
-    console.log(`Fee map sample keys: ${JSON.stringify(feeMapKeys)}`);
-
     for (const pedido of (pedidos || [])) {
       const nuvemId = String(pedido.nuvemshop_order_id);
       const match = feeByNuvemshopId[nuvemId];
-      
-      // Debug specific order
-      if (pedido.numero_pedido === "510") {
-        console.log(`DEBUG #510: nuvemId="${nuvemId}", match=${JSON.stringify(match)}, taxa_pagarme=${pedido.taxa_pagarme}, taxa_ted=${pedido.taxa_ted}, ted_confirmado=${pedido.ted_confirmado}`);
-      }
-      
       if (!match) continue;
 
       const taxaPagarme = Math.round(match.processingFee * 100) / 100;
