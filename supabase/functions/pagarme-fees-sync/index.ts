@@ -70,7 +70,9 @@ Deno.serve(async (req) => {
         const items = json.data || [];
         if (!items.length) break;
         all.push(...items);
-        if (items.length < size) break;
+        // Use paging.next to determine if there are more pages (API may cap size)
+        const hasNext = json.paging?.next;
+        if (!hasNext) break;
         page++;
         if (all.length > maxItems) break;
       }
