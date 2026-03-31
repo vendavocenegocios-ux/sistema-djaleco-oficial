@@ -78,17 +78,21 @@ Deno.serve(async (req) => {
       return all;
     }
 
+    const createdUntil = new Date().toISOString().split("T")[0] + "T23:59:59";
+    const sinceParam = encodeURIComponent(createdSince);
+    const untilParam = encodeURIComponent(createdUntil);
+
     const [allPayables, allCharges, allBalanceOps] = await Promise.all([
       fetchAllPages(
-        `https://api.pagar.me/core/v5/payables?created_since=${encodeURIComponent(createdSince)}`,
+        `https://api.pagar.me/core/v5/payables?created_since=${sinceParam}&created_until=${untilParam}`,
         "payables"
       ),
       fetchAllPages(
-        `https://api.pagar.me/core/v5/charges?created_since=${encodeURIComponent(createdSince)}`,
+        `https://api.pagar.me/core/v5/charges?created_since=${sinceParam}&created_until=${untilParam}`,
         "charges"
       ),
       fetchAllPages(
-        `https://api.pagar.me/core/v5/balance/operations?created_since=${encodeURIComponent(createdSince)}`,
+        `https://api.pagar.me/core/v5/balance/operations?created_since=${sinceParam}&created_until=${untilParam}`,
         "balance_operations"
       ),
     ]);
