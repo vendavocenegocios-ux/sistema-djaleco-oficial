@@ -70,7 +70,10 @@ Deno.serve(async (req) => {
         const items = json.data || [];
         if (!items.length) break;
         all.push(...items);
-        if (items.length < size) break;
+        // Stop if no next page OR if we got fewer items than requested
+        const hasNext = json.paging?.next;
+        if (!hasNext && items.length < size) break;
+        if (!hasNext && items.length >= size) { page++; if (all.length > maxItems) break; continue; }
         page++;
         if (all.length > maxItems) break;
       }
@@ -78,17 +81,21 @@ Deno.serve(async (req) => {
       return all;
     }
 
+    const createdUntil = new Date().toISOString().split("T")[0] + "T23:59:59";
+    const sinceParam = encodeURIComponent(createdSince);
+    const untilParam = encodeURIComponent(createdUntil);
+
     const [allPayables, allCharges, allBalanceOps] = await Promise.all([
       fetchAllPages(
-        `https://api.pagar.me/core/v5/payables?created_since=${encodeURIComponent(createdSince)}`,
+        `https://api.pagar.me/core/v5/payables?created_since=${sinceParam}&created_until=${untilParam}`,
         "payables"
       ),
       fetchAllPages(
-        `https://api.pagar.me/core/v5/charges?created_since=${encodeURIComponent(createdSince)}`,
+        `https://api.pagar.me/core/v5/charges?created_since=${sinceParam}&created_until=${untilParam}`,
         "charges"
       ),
       fetchAllPages(
-        `https://api.pagar.me/core/v5/balance/operations?created_since=${encodeURIComponent(createdSince)}`,
+        `https://api.pagar.me/core/v5/balance/operations?created_since=${sinceParam}&created_until=${untilParam}`,
         "balance_operations"
       ),
     ]);
@@ -135,6 +142,8 @@ Deno.serve(async (req) => {
       const code = String(c.order?.code || c.code || "");
       const processingFee = feeByChargeId[c.id] || 0;
       const tedFee = transferFeeByChargeId[c.id] || 0;
+      
+      
       if (code && (processingFee > 0 || tedFee > 0)) {
         feeByNuvemshopId[code] = { processingFee, tedFee };
       }
