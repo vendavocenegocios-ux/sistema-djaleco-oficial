@@ -25,9 +25,36 @@ Deno.serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const auth = btoa(`${PAGARME_API_KEY}:`);
 
-    const windowStart = new Date();
-    windowStart.setMonth(windowStart.getMonth() - 24);
-    const createdSince = windowStart.toISOString().split("T")[0] + "T00:00:00";
+    // INCREMENTAL: Find the oldest pedido that still needs fee sync
+    // Only fetch Pagar.me data from that date onwards instead of 24 months
+    let createdSince: string;
+    if (!resyncAll) {
+      const { data: oldestPending } = await supabase
+        .from("pedidos")
+        .select("data_pedido")
+        .gt("valor_bruto", 0)
+        .not("nuvemshop_order_id", "is", null)
+        .or("taxa_pagarme.eq.0,ted_confirmado.eq.false")
+        .order("data_pedido", { ascending: true })
+        .limit(1);
+      
+      if (oldestPending?.length) {
+        const oldest = new Date(oldestPending[0].data_pedido);
+        oldest.setDate(oldest.getDate() - 7); // 1 week buffer
+        createdSince = oldest.toISOString().split("T")[0] + "T00:00:00";
+      } else {
+        // Nothing to sync
+        return new Response(
+          JSON.stringify({ success: true, message: "Nenhum pedido pendente de taxas", pedidos_updated: 0 }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    } else {
+      const windowStart = new Date();
+      windowStart.setMonth(windowStart.getMonth() - 24);
+      createdSince = windowStart.toISOString().split("T")[0] + "T00:00:00";
+    }
+    console.log(`Fetching Pagar.me data since ${createdSince} (resyncAll: ${resyncAll})`);
     const size = 100;
 
     async function fetchAllPages(baseUrl: string, label: string, maxItems = 10000) {

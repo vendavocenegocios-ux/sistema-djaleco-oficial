@@ -43,17 +43,38 @@ Deno.serve(async (req) => {
       .single();
     const taxaComissaoWilliam = williamData?.taxa_comissao ?? 10;
 
-    // Fetch orders from the last 3 months only to avoid WORKER_LIMIT
+    // INCREMENTAL: Find the most recent updated_at from existing nuvemshop orders
+    const { data: lastSynced } = await supabase
+      .from("pedidos")
+      .select("updated_at")
+      .not("nuvemshop_order_id", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    // Use last sync time minus 1 hour buffer, or 3 months ago for first sync
+    let updatedAtMin: string;
+    if (lastSynced?.length) {
+      const lastDate = new Date(lastSynced[0].updated_at);
+      lastDate.setHours(lastDate.getHours() - 1); // 1h buffer for safety
+      updatedAtMin = lastDate.toISOString();
+    } else {
+      const threeMonthsAgo = new Date();
+      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      updatedAtMin = threeMonthsAgo.toISOString();
+    }
+
+    // Also always have a floor of 3 months ago
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
     const createdAtMin = threeMonthsAgo.toISOString();
 
+    // Use updated_at_min to only get orders changed since last sync
     let allOrders: any[] = [];
     let page = 1;
     const perPage = 50;
     while (true) {
       const res = await fetch(
-        `${baseUrl}/orders?per_page=${perPage}&page=${page}&created_at_min=${createdAtMin}`,
+        `${baseUrl}/orders?per_page=${perPage}&page=${page}&updated_at_min=${updatedAtMin}`,
         { headers }
       );
       if (!res.ok) {
@@ -67,15 +88,22 @@ Deno.serve(async (req) => {
       page++;
     }
 
-    console.log(`Fetched ${allOrders.length} orders from Nuvemshop`);
+    console.log(`Fetched ${allOrders.length} updated orders from Nuvemshop (since ${updatedAtMin})`);
+
+    if (allOrders.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, message: "Nenhum pedido novo ou atualizado encontrado", orders_synced: 0, clients_created: 0 }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Pre-fetch existing pedidos
     const nuvemshopIds = allOrders.map((o: any) => o.id).filter(Boolean);
     const { data: existingPedidos } = await supabase
       .from("pedidos")
-      .select("id, nuvemshop_order_id")
+      .select("id, nuvemshop_order_id, taxa_pagarme, taxa_ted, ted_confirmado, comissao, valor_liquido, etapa_producao")
       .in("nuvemshop_order_id", nuvemshopIds);
-    const pedidoMap = new Map((existingPedidos || []).map((p: any) => [p.nuvemshop_order_id, p.id]));
+    const pedidoMap = new Map((existingPedidos || []).map((p: any) => [p.nuvemshop_order_id, p]));
 
     // Pre-fetch clients
     const emails = allOrders.map((o: any) => o.customer?.email || o.contact_email).filter(Boolean);
@@ -91,12 +119,12 @@ Deno.serve(async (req) => {
 
     let syncedOrders = 0;
     let syncedClientes = 0;
-
-    // Prepare all data first, then do bulk operations
-    const newClientes: any[] = [];
-    const orderClienteMap = new Map<number, number>(); // order index -> newClientes index
+    let skippedOrders = 0;
 
     // First pass: identify new clients needed
+    const newClientes: any[] = [];
+    const orderClienteMap = new Map<number, number>();
+
     for (let i = 0; i < allOrders.length; i++) {
       const order = allOrders[i];
       const customerEmail = order.customer?.email || order.contact_email || null;
@@ -114,7 +142,6 @@ Deno.serve(async (req) => {
         const bairroCliente = order.shipping_address?.locality || null;
         const cepCliente = order.shipping_address?.zipcode || null;
 
-        // Check if we already queued this client
         const existingIdx = newClientes.findIndex((c) =>
           (customerEmail && c.email === customerEmail) || (customerPhone && c.telefone === customerPhone)
         );
@@ -127,14 +154,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Bulk insert new clients in batches of 50
+    // Bulk insert new clients
     const newClienteIds: string[] = [];
     for (let i = 0; i < newClientes.length; i += 50) {
       const batch = newClientes.slice(i, i + 50);
       const { data: inserted, error } = await supabase.from("clientes").insert(batch).select("id, email, telefone");
       if (error) {
         console.error("Error bulk inserting clientes:", error);
-        // Insert individually as fallback
         for (const c of batch) {
           const { data: single, error: sErr } = await supabase.from("clientes").insert(c).select("id").single();
           if (sErr) { console.error("Error creating cliente:", sErr); newClienteIds.push(""); }
@@ -153,13 +179,12 @@ Deno.serve(async (req) => {
     // Second pass: prepare pedido data
     const toInsert: any[] = [];
     const toUpdate: { id: string; data: any }[] = [];
-    const orderItemsMap: { orderIdx: number; products: any[] }[] = [];
+    const orderItemsMapNew: { orderIdx: number; products: any[] }[] = [];
 
     for (let i = 0; i < allOrders.length; i++) {
       const order = allOrders[i];
       const customerName = order.customer?.name || order.contact_name || "Sem nome";
       const customerPhone = order.customer?.phone || order.contact_phone || null;
-      const customerEmail = order.customer?.email || order.contact_email || null;
       const cidadeCliente = order.shipping_address?.city || order.billing_city || null;
       const estadoCliente = order.shipping_address?.province || order.billing_province || null;
       const enderecoCliente = [order.shipping_address?.address, order.shipping_address?.number, order.shipping_address?.floor].filter(Boolean).join(", ") || null;
@@ -168,56 +193,74 @@ Deno.serve(async (req) => {
 
       const valorBruto = parseFloat(order.total) || 0;
       const frete = parseFloat(order.shipping_cost_customer) || parseFloat(order.shipping_cost_owner) || 0;
-      const taxaPagarme = parseFloat(order.gateway_fee) || 0;
-      const taxaTed = 3.67; // Estimated TED fee for new orders
-      const valorLiquido = valorBruto - frete - taxaPagarme - taxaTed;
-      const baseComissao = valorBruto - taxaPagarme - taxaTed - frete;
-      const comissao = baseComissao > 0 ? baseComissao * (taxaComissaoWilliam / 100) : 0;
       const rastreioCodigo = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
-
-      const etapa = "Comercial";
-
       const statusPagamento = order.payment_status === "paid" ? "recebido" : "pendente";
 
-      const pedidoData: any = {
-        numero_pedido: String(order.number || order.id),
-        nuvemshop_order_id: order.id,
-        cliente_nome: customerName,
-        cliente_telefone: customerPhone,
-        cidade: cidadeCliente,
-        estado: estadoCliente,
-        endereco: enderecoCliente,
-        bairro: bairroCliente,
-        cep: cepCliente,
-        origem: "site",
-        data_pedido: order.created_at,
-        valor_bruto: valorBruto,
-        frete,
-        taxa_pagarme: taxaPagarme,
-        taxa_ted: taxaTed,
-        ted_confirmado: false,
-        valor_liquido: valorLiquido,
-        rastreio_codigo: rastreioCodigo,
-        vendedor_id: WILLIAM_VENDEDOR_ID,
-        comissao,
-        status_pagamento: statusPagamento,
-      };
+      const existing = pedidoMap.get(order.id);
 
-      const existingId = pedidoMap.get(order.id);
-      if (existingId) {
-        toUpdate.push({ id: existingId, data: pedidoData });
+      if (existing) {
+        // UPDATE: Only update non-financial fields. Preserve taxa_pagarme, taxa_ted, comissao, valor_liquido
+        const updateData: any = {
+          cliente_nome: customerName,
+          cliente_telefone: customerPhone,
+          cidade: cidadeCliente,
+          estado: estadoCliente,
+          endereco: enderecoCliente,
+          bairro: bairroCliente,
+          cep: cepCliente,
+          status_pagamento: statusPagamento,
+          valor_bruto: valorBruto,
+          frete,
+        };
+        // Only update rastreio if we got one and the existing doesn't have one
+        if (rastreioCodigo) {
+          updateData.rastreio_codigo = rastreioCodigo;
+        }
+
+        toUpdate.push({ id: existing.id, data: updateData });
       } else {
-        pedidoData.etapa_producao = etapa;
-        toInsert.push({ ...pedidoData, _orderIdx: i });
-      }
+        // INSERT: New order with estimated fees
+        const taxaPagarme = parseFloat(order.gateway_fee) || 0;
+        const taxaTed = 3.67;
+        const valorLiquido = valorBruto - frete - taxaPagarme - taxaTed;
+        const baseComissao = valorBruto - taxaPagarme - taxaTed - frete;
+        const comissao = baseComissao > 0 ? baseComissao * (taxaComissaoWilliam / 100) : 0;
 
-      if (order.products?.length) {
-        orderItemsMap.push({ orderIdx: i, products: order.products });
+        const pedidoData: any = {
+          numero_pedido: String(order.number || order.id),
+          nuvemshop_order_id: order.id,
+          cliente_nome: customerName,
+          cliente_telefone: customerPhone,
+          cidade: cidadeCliente,
+          estado: estadoCliente,
+          endereco: enderecoCliente,
+          bairro: bairroCliente,
+          cep: cepCliente,
+          origem: "site",
+          data_pedido: order.created_at,
+          valor_bruto: valorBruto,
+          frete,
+          taxa_pagarme: taxaPagarme,
+          taxa_ted: taxaTed,
+          ted_confirmado: false,
+          valor_liquido: valorLiquido,
+          rastreio_codigo: rastreioCodigo,
+          vendedor_id: WILLIAM_VENDEDOR_ID,
+          comissao,
+          status_pagamento: statusPagamento,
+          etapa_producao: "Comercial",
+        };
+
+        toInsert.push({ ...pedidoData, _orderIdx: i });
+        // Only add items for new orders
+        if (order.products?.length) {
+          orderItemsMapNew.push({ orderIdx: i, products: order.products });
+        }
       }
     }
 
-    // Bulk insert new pedidos in batches of 50
-    const insertedPedidoMap = new Map<number, string>(); // orderIdx -> pedido id
+    // Bulk insert new pedidos
+    const insertedPedidoMap = new Map<number, string>();
     for (let i = 0; i < toInsert.length; i += 50) {
       const batch = toInsert.slice(i, i + 50).map(({ _orderIdx, ...rest }) => rest);
       const orderIdxs = toInsert.slice(i, i + 50).map((p) => p._orderIdx);
@@ -226,31 +269,27 @@ Deno.serve(async (req) => {
       else if (inserted) {
         for (let j = 0; j < inserted.length; j++) {
           insertedPedidoMap.set(orderIdxs[j], inserted[j].id);
-          pedidoMap.set(inserted[j].nuvemshop_order_id, inserted[j].id);
-          syncedOrders++;
         }
       }
     }
 
-    // Bulk update existing pedidos in batches of 50
+    // Bulk update existing pedidos
     for (let i = 0; i < toUpdate.length; i += 50) {
       const batch = toUpdate.slice(i, i + 50);
-      // Unfortunately Supabase doesn't support bulk update by different IDs, so we do individual updates
-      // but we can Promise.all them
-      await Promise.all(batch.map(({ id, data }) => {
-        const { etapa_producao, etapa_entrada_em, ...updateData } = data;
-        return supabase.from("pedidos").update(updateData).eq("id", id);
-      }));
-      syncedOrders += batch.length;
+      await Promise.all(batch.map(({ id, data }) =>
+        supabase.from("pedidos").update(data).eq("id", id)
+      ));
     }
 
-    // Bulk handle items: delete old items and insert new ones
-    const allPedidoIds = new Set<string>();
+    syncedOrders = toInsert.length + toUpdate.length;
+
+    // Insert items only for NEW orders
     const allItems: any[] = [];
-    for (const { orderIdx, products } of orderItemsMap) {
-      const pedidoId = insertedPedidoMap.get(orderIdx) || pedidoMap.get(allOrders[orderIdx].id);
+    const newPedidoIds = new Set<string>();
+    for (const { orderIdx, products } of orderItemsMapNew) {
+      const pedidoId = insertedPedidoMap.get(orderIdx);
       if (!pedidoId) continue;
-      allPedidoIds.add(pedidoId);
+      newPedidoIds.add(pedidoId);
       for (const p of products) {
         allItems.push({
           pedido_id: pedidoId,
@@ -262,19 +301,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Delete old items in batches
-    const pedidoIdArr = Array.from(allPedidoIds);
-    for (let i = 0; i < pedidoIdArr.length; i += 100) {
-      await supabase.from("pedido_itens").delete().in("pedido_id", pedidoIdArr.slice(i, i + 100));
-    }
-    // Insert new items in batches
     for (let i = 0; i < allItems.length; i += 100) {
       const { error } = await supabase.from("pedido_itens").insert(allItems.slice(i, i + 100));
       if (error) console.error("Error inserting items batch:", error);
     }
 
     return new Response(
-      JSON.stringify({ success: true, message: `Sync concluído: ${syncedOrders} pedidos, ${syncedClientes} novos clientes`, orders_synced: syncedOrders, clients_created: syncedClientes }),
+      JSON.stringify({
+        success: true,
+        message: `Sync concluído: ${toInsert.length} novos, ${toUpdate.length} atualizados, ${syncedClientes} novos clientes`,
+        orders_synced: syncedOrders,
+        new_orders: toInsert.length,
+        updated_orders: toUpdate.length,
+        clients_created: syncedClientes,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
