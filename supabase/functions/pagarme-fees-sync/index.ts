@@ -143,10 +143,6 @@ Deno.serve(async (req) => {
       const processingFee = feeByChargeId[c.id] || 0;
       const tedFee = transferFeeByChargeId[c.id] || 0;
       
-      // Debug charge ch_G3d1moxhGh0EklWD (order 510)
-      if (code === "1906983910" || c.id === "ch_G3d1moxhGh0EklWD") {
-        console.log(`DEBUG charge 510: id=${c.id}, code=${code}, status=${c.status}, processingFee=${processingFee}, tedFee=${tedFee}, feeByChargeId[id]=${feeByChargeId[c.id]}, transferFeeByChargeId[id]=${transferFeeByChargeId[c.id]}`);
-      }
       
       if (code && (processingFee > 0 || tedFee > 0)) {
         feeByNuvemshopId[code] = { processingFee, tedFee };
