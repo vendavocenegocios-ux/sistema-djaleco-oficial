@@ -556,20 +556,29 @@ export default function Financeiro() {
                   </TableHeader>
                   <TableBody>
                     {comissoesTodas.length === 0 ? (
-                      <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={tedMode ? 15 : 14} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
                     ) : (
                       comissoesTodas.map((p) => {
                         const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
                         const isEditing = editingComissao === p.id;
                         const pct = getPercentual(p);
                         return (
-                          <TableRow key={p.id}>
+                          <TableRow key={p.id} className={selectedTedPedidos.has(p.id) ? "bg-accent/50" : ""}>
+                            {tedMode && (
+                              <TableCell>
+                                <Checkbox
+                                  checked={selectedTedPedidos.has(p.id)}
+                                  onCheckedChange={() => toggleTedSelect(p.id)}
+                                />
+                              </TableCell>
+                            )}
                             <TableCell className="font-medium">#{p.numero_pedido}</TableCell>
                             <TableCell>{p.cliente_nome}</TableCell>
                             <TableCell>{vendedorItem?.nome || "—"}</TableCell>
                             <TableCell className="text-right text-xs">{formatCurrency(Number(p.valor_bruto))}</TableCell>
                             <TableCell className="text-right text-xs">{formatCurrency(Number(p.frete))}</TableCell>
                             <TableCell className="text-right text-xs">{formatCurrency(Number(p.taxa_pagarme))}</TableCell>
+                            <TableCell className="text-right text-xs">{formatCurrency(Number(p.taxa_ted))}</TableCell>
                             <TableCell className="text-right text-xs font-medium">{formatCurrency(Number(p.valor_liquido))}</TableCell>
                             <TableCell className="text-right">
                               {isEditing ? (
