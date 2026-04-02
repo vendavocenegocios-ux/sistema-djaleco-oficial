@@ -555,7 +555,7 @@ export default function Financeiro() {
                   </TableHeader>
                   <TableBody>
                     {comissoesTodas.length === 0 ? (
-                      <TableRow><TableCell colSpan={tedMode ? 15 : 14} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={15} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
                     ) : (
                       comissoesTodas.map((p) => {
                         const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
