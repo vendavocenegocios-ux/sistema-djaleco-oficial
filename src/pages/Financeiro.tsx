@@ -536,8 +536,9 @@ export default function Financeiro() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      {tedMode && <TableHead className="w-10"></TableHead>}
+                      <TableHead className="w-10"></TableHead>
                       <TableHead>Pedido</TableHead>
+                      <TableHead>Data</TableHead>
                       <TableHead>Cliente</TableHead>
                       <TableHead>Vendedor</TableHead>
                       <TableHead className="text-right">Bruto</TableHead>
