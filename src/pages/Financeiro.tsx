@@ -563,15 +563,14 @@ export default function Financeiro() {
                         const pct = getPercentual(p);
                         return (
                           <TableRow key={p.id} className={selectedTedPedidos.has(p.id) ? "bg-accent/50" : ""}>
-                            {tedMode && (
-                              <TableCell>
-                                <Checkbox
-                                  checked={selectedTedPedidos.has(p.id)}
-                                  onCheckedChange={() => toggleTedSelect(p.id)}
-                                />
-                              </TableCell>
-                            )}
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedTedPedidos.has(p.id)}
+                                onCheckedChange={() => toggleTedSelect(p.id)}
+                              />
+                            </TableCell>
                             <TableCell className="font-medium">#{p.numero_pedido}</TableCell>
+                            <TableCell className="text-xs">{format(new Date(p.data_pedido), "dd/MM/yy")}</TableCell>
                             <TableCell>{p.cliente_nome}</TableCell>
                             <TableCell>{vendedorItem?.nome || "—"}</TableCell>
                             <TableCell className="text-right text-xs">{formatCurrency(Number(p.valor_bruto))}</TableCell>
