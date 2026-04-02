@@ -10,12 +10,13 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useState, useMemo } from "react";
 import { format, subMonths, parseISO, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
-import { Check, Loader2, CalendarIcon, Pencil } from "lucide-react";
+import { Check, Loader2, CalendarIcon, Pencil, Link } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 
@@ -121,6 +122,10 @@ export default function Financeiro() {
   const [editingComissao, setEditingComissao] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
+  // Multi-select TED grouping
+  const [selectedTedPedidos, setSelectedTedPedidos] = useState<Set<string>>(new Set());
+  const [tedMode, setTedMode] = useState(false);
+
   const pagarmeParams = pgFilterType === "mes"
     ? { year: pgYear, month: pgMonth }
     : { start_date: pgStartDate, end_date: pgEndDate };
@@ -211,10 +216,66 @@ export default function Financeiro() {
   const comTotalBruto = comissoesTodas.reduce((s, p) => s + Number(p.valor_bruto), 0);
   const comTotalFrete = comissoesTodas.reduce((s, p) => s + Number(p.frete), 0);
   const comTotalTaxa = comissoesTodas.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
+  const comTotalTed = comissoesTodas.reduce((s, p) => s + Number(p.taxa_ted), 0);
   const comTotalLiquido = comissoesTodas.reduce((s, p) => s + Number(p.valor_liquido), 0);
   const comTotalComissao = comissoesTodas.reduce((s, p) => s + Number(p.comissao), 0);
   const comTotalPago = comissoesTodas.filter(p => p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
   const comTotalPendente = comissoesTodas.filter(p => !p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
+
+  const toggleTedSelect = (id: string) => {
+    setSelectedTedPedidos(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAgruparTed = () => {
+    if (selectedTedPedidos.size < 2) {
+      toast.error("Selecione pelo menos 2 pedidos para agrupar o TED");
+      return;
+    }
+    const selected = comissoesTodas.filter(p => selectedTedPedidos.has(p.id));
+    // Sum all TED fees from selected, then redistribute equally
+    const totalTed = selected.reduce((s, p) => s + Number(p.taxa_ted), 0);
+    const tedPerPedido = Math.round((totalTed / selected.length) * 100) / 100;
+    
+    // Actually the idea is: they share ONE TED fee (R$3.67 typically)
+    // So we set one TED fee split across all selected orders
+    const singleTed = 3.67; // default TED fee
+    const tedEach = Math.round((singleTed / selected.length) * 100) / 100;
+    
+    let completed = 0;
+    for (const p of selected) {
+      const valorBruto = Number(p.valor_bruto);
+      const frete = Number(p.frete);
+      const taxaPagarme = Number(p.taxa_pagarme);
+      const valorLiquido = valorBruto - frete - taxaPagarme - tedEach;
+      
+      // Recalculate commission
+      const vendedor = vendedores?.find(v => v.id === p.vendedor_id);
+      let comissao = 0;
+      if (vendedor) {
+        const taxaComissao = p.origem === "whatsapp" ? vendedor.taxa_comissao_whatsapp : vendedor.taxa_comissao_site;
+        const base = valorBruto - taxaPagarme - tedEach - frete;
+        comissao = base > 0 ? base * (taxaComissao / 100) : 0;
+      }
+      
+      updatePedido.mutate(
+        { id: p.id, taxa_ted: tedEach, valor_liquido: valorLiquido, comissao },
+        {
+          onSuccess: () => {
+            completed++;
+            if (completed === selected.length) {
+              toast.success(`TED único de R$ ${singleTed.toFixed(2)} dividido entre ${selected.length} pedidos (R$ ${tedEach.toFixed(2)} cada)`);
+              setSelectedTedPedidos(new Set());
+              setTedMode(false);
+            }
+          },
+        }
+      );
+    }
+  };
 
   const handlePagarComissao = (pedidoId: string, date: Date) => {
     updatePedido.mutate(
@@ -406,11 +467,12 @@ export default function Financeiro() {
             </Card>
 
             {/* Summary totals */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3 sm:gap-4">
               {[
                 { label: "Fat. Bruto", value: comTotalBruto },
                 { label: "Frete / Correios", value: comTotalFrete },
                 { label: "Taxas Pagar.me", value: comTotalTaxa },
+                { label: "Taxa TED", value: comTotalTed },
                 { label: "Fat. Líquido", value: comTotalLiquido },
                 { label: "Total Comissões", value: comTotalComissao },
                 { label: "Comissões Pagas", value: comTotalPago, color: "text-green-600" },
@@ -450,18 +512,40 @@ export default function Financeiro() {
               })}
             </div>
 
+            {/* TED grouping toolbar */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant={tedMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => { setTedMode(!tedMode); setSelectedTedPedidos(new Set()); }}
+              >
+                <Link className="h-3 w-3 mr-1" />
+                {tedMode ? "Cancelar Agrupamento" : "Agrupar TED"}
+              </Button>
+              {tedMode && selectedTedPedidos.size > 0 && (
+                <Button size="sm" onClick={handleAgruparTed}>
+                  Aplicar TED único ({selectedTedPedidos.size} pedidos)
+                </Button>
+              )}
+              {tedMode && (
+                <span className="text-xs text-muted-foreground">Selecione os pedidos que compartilham a mesma transferência TED</span>
+              )}
+            </div>
+
             {/* Desktop table */}
             <Card className="overflow-hidden hidden sm:block">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {tedMode && <TableHead className="w-10"></TableHead>}
                       <TableHead>Pedido</TableHead>
                       <TableHead>Cliente</TableHead>
                       <TableHead>Vendedor</TableHead>
                       <TableHead className="text-right">Bruto</TableHead>
                       <TableHead className="text-right">Frete</TableHead>
                       <TableHead className="text-right">Pagar.me</TableHead>
+                      <TableHead className="text-right">TED</TableHead>
                       <TableHead className="text-right">Líquido</TableHead>
                       <TableHead className="text-right">%</TableHead>
                       <TableHead className="text-right">Comissão</TableHead>
@@ -472,20 +556,29 @@ export default function Financeiro() {
                   </TableHeader>
                   <TableBody>
                     {comissoesTodas.length === 0 ? (
-                      <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={tedMode ? 15 : 14} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
                     ) : (
                       comissoesTodas.map((p) => {
                         const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
                         const isEditing = editingComissao === p.id;
                         const pct = getPercentual(p);
                         return (
-                          <TableRow key={p.id}>
+                          <TableRow key={p.id} className={selectedTedPedidos.has(p.id) ? "bg-accent/50" : ""}>
+                            {tedMode && (
+                              <TableCell>
+                                <Checkbox
+                                  checked={selectedTedPedidos.has(p.id)}
+                                  onCheckedChange={() => toggleTedSelect(p.id)}
+                                />
+                              </TableCell>
+                            )}
                             <TableCell className="font-medium">#{p.numero_pedido}</TableCell>
                             <TableCell>{p.cliente_nome}</TableCell>
                             <TableCell>{vendedorItem?.nome || "—"}</TableCell>
                             <TableCell className="text-right text-xs">{formatCurrency(Number(p.valor_bruto))}</TableCell>
                             <TableCell className="text-right text-xs">{formatCurrency(Number(p.frete))}</TableCell>
                             <TableCell className="text-right text-xs">{formatCurrency(Number(p.taxa_pagarme))}</TableCell>
+                            <TableCell className="text-right text-xs">{formatCurrency(Number(p.taxa_ted))}</TableCell>
                             <TableCell className="text-right text-xs font-medium">{formatCurrency(Number(p.valor_liquido))}</TableCell>
                             <TableCell className="text-right">
                               {isEditing ? (
@@ -577,9 +670,17 @@ export default function Financeiro() {
                 const isEditing = editingComissao === p.id;
                 const pct = getPercentual(p);
                 return (
-                  <Card key={p.id} className="p-3 space-y-2">
+                  <Card key={p.id} className={cn("p-3 space-y-2", selectedTedPedidos.has(p.id) && "ring-2 ring-primary")}>
                     <div className="flex items-center justify-between">
-                      <span className="font-medium text-sm">#{p.numero_pedido}</span>
+                      <div className="flex items-center gap-2">
+                        {tedMode && (
+                          <Checkbox
+                            checked={selectedTedPedidos.has(p.id)}
+                            onCheckedChange={() => toggleTedSelect(p.id)}
+                          />
+                        )}
+                        <span className="font-medium text-sm">#{p.numero_pedido}</span>
+                      </div>
                       <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-[10px] cursor-pointer"
                         onClick={() => p.comissao_paga ? handleDesmarcarComissao(p.id) : undefined}
                       >
@@ -591,7 +692,8 @@ export default function Financeiro() {
                       <span>Bruto: <span className="text-foreground font-medium">{formatCurrency(Number(p.valor_bruto))}</span></span>
                       <span>Frete: <span className="text-foreground font-medium">{formatCurrency(Number(p.frete))}</span></span>
                       <span>Pagar.me: <span className="text-foreground font-medium">{formatCurrency(Number(p.taxa_pagarme))}</span></span>
-                      <span>Líquido: <span className="text-foreground font-medium">{formatCurrency(Number(p.valor_liquido))}</span></span>
+                      <span>TED: <span className="text-foreground font-medium">{formatCurrency(Number(p.taxa_ted))}</span></span>
+                      <span className="col-span-2">Líquido: <span className="text-foreground font-medium">{formatCurrency(Number(p.valor_liquido))}</span></span>
                     </div>
                     <div className="flex items-center justify-between">
                       {isEditing ? (
