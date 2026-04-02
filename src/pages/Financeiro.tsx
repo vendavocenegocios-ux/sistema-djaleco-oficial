@@ -512,18 +512,40 @@ export default function Financeiro() {
               })}
             </div>
 
+            {/* TED grouping toolbar */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant={tedMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => { setTedMode(!tedMode); setSelectedTedPedidos(new Set()); }}
+              >
+                <Link className="h-3 w-3 mr-1" />
+                {tedMode ? "Cancelar Agrupamento" : "Agrupar TED"}
+              </Button>
+              {tedMode && selectedTedPedidos.size > 0 && (
+                <Button size="sm" onClick={handleAgruparTed}>
+                  Aplicar TED único ({selectedTedPedidos.size} pedidos)
+                </Button>
+              )}
+              {tedMode && (
+                <span className="text-xs text-muted-foreground">Selecione os pedidos que compartilham a mesma transferência TED</span>
+              )}
+            </div>
+
             {/* Desktop table */}
             <Card className="overflow-hidden hidden sm:block">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {tedMode && <TableHead className="w-10"></TableHead>}
                       <TableHead>Pedido</TableHead>
                       <TableHead>Cliente</TableHead>
                       <TableHead>Vendedor</TableHead>
                       <TableHead className="text-right">Bruto</TableHead>
                       <TableHead className="text-right">Frete</TableHead>
                       <TableHead className="text-right">Pagar.me</TableHead>
+                      <TableHead className="text-right">TED</TableHead>
                       <TableHead className="text-right">Líquido</TableHead>
                       <TableHead className="text-right">%</TableHead>
                       <TableHead className="text-right">Comissão</TableHead>
