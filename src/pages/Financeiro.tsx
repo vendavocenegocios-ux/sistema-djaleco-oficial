@@ -268,7 +268,6 @@ export default function Financeiro() {
             if (completed === selected.length) {
               toast.success(`TED único de R$ ${singleTed.toFixed(2)} dividido entre ${selected.length} pedidos (R$ ${tedEach.toFixed(2)} cada)`);
               setSelectedTedPedidos(new Set());
-              setTedMode(false);
             }
           },
         }
