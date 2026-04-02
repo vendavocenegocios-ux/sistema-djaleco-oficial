@@ -510,23 +510,113 @@ export default function Financeiro() {
               })}
             </div>
 
-            {/* TED grouping toolbar */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {selectedTedPedidos.size > 0 && (
-                <>
-                  <Button size="sm" onClick={handleAgruparTed}>
-                    <Link className="h-3 w-3 mr-1" />
-                    Aplicar TED único ({selectedTedPedidos.size} pedidos)
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setSelectedTedPedidos(new Set())}>
-                    Limpar seleção
-                  </Button>
-                </>
-              )}
-              <span className="text-xs text-muted-foreground">
-                {selectedTedPedidos.size === 0 ? "Selecione pedidos para agrupar TED" : `${selectedTedPedidos.size} pedido(s) selecionado(s)`}
-              </span>
-            </div>
+            {/* TED grouping toolbar + summary */}
+            {selectedTedPedidos.size > 0 ? (() => {
+              const selected = comissoesTodas.filter(p => selectedTedPedidos.has(p.id));
+              const sumBruto = selected.reduce((s, p) => s + Number(p.valor_bruto), 0);
+              const sumFrete = selected.reduce((s, p) => s + Number(p.frete), 0);
+              const sumTaxaPagarme = selected.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
+              const sumTedAtual = selected.reduce((s, p) => s + Number(p.taxa_ted), 0);
+              const sumLiquido = selected.reduce((s, p) => s + Number(p.valor_liquido), 0);
+              const sumComissao = selected.reduce((s, p) => s + Number(p.comissao), 0);
+              const tedUnico = 3.67;
+              const tedPerOrder = Math.round((tedUnico / selected.length) * 100) / 100;
+              // Recalculate projected commission with single TED
+              const projectedComissao = selected.reduce((s, p) => {
+                const vendedor = vendedores?.find(v => v.id === p.vendedor_id);
+                if (!vendedor) return s;
+                const taxa = p.origem === "whatsapp" ? vendedor.taxa_comissao_whatsapp : vendedor.taxa_comissao_site;
+                const base = Number(p.valor_bruto) - Number(p.frete) - Number(p.taxa_pagarme) - tedPerOrder;
+                return s + (base > 0 ? base * (taxa / 100) : 0);
+              }, 0);
+
+              return (
+                <Card className="p-4 border-primary/50 bg-accent/30">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-sm">Resumo — {selected.length} pedido(s) selecionado(s)</h3>
+                      <Button size="sm" variant="ghost" className="text-xs" onClick={() => setSelectedTedPedidos(new Set())}>
+                        Limpar seleção
+                      </Button>
+                    </div>
+                    <div className="text-xs space-y-1">
+                      {selected.map(p => (
+                        <span key={p.id} className="inline-flex items-center gap-1 mr-2 text-muted-foreground">
+                          <Badge variant="outline" className="text-[10px]">#{p.numero_pedido}</Badge>
+                          {p.cliente_nome}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div><span className="text-muted-foreground">Fat. Bruto:</span> <span className="font-medium">{formatCurrency(sumBruto)}</span></div>
+                      <div><span className="text-muted-foreground">Frete:</span> <span className="font-medium">{formatCurrency(sumFrete)}</span></div>
+                      <div><span className="text-muted-foreground">Pagar.me:</span> <span className="font-medium">{formatCurrency(sumTaxaPagarme)}</span></div>
+                      <div><span className="text-muted-foreground">TED atual:</span> <span className="font-medium">{formatCurrency(sumTedAtual)}</span></div>
+                      <div><span className="text-muted-foreground">Líquido:</span> <span className="font-medium">{formatCurrency(sumLiquido)}</span></div>
+                      <div><span className="text-muted-foreground">Comissão atual:</span> <span className="font-medium">{formatCurrency(sumComissao)}</span></div>
+                    </div>
+                    <div className="border-t pt-3 space-y-2">
+                      <div className="flex items-center gap-4 text-xs">
+                        <span className="text-muted-foreground">Com TED único (R$ {tedUnico.toFixed(2)} ÷ {selected.length} = R$ {tedPerOrder.toFixed(2)}/pedido):</span>
+                        <span className="font-semibold text-primary">{formatCurrency(projectedComissao)}</span>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        <Button size="sm" onClick={handleAgruparTed}>
+                          <Link className="h-3 w-3 mr-1" />
+                          Aplicar TED único
+                        </Button>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button size="sm" variant="outline">
+                              <CalendarIcon className="h-3 w-3 mr-1" />
+                              Pagar comissões selecionadas
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              onSelect={(d) => {
+                                if (!d) return;
+                                let done = 0;
+                                for (const p of selected) {
+                                  if (p.comissao_paga) { done++; continue; }
+                                  updatePedido.mutate(
+                                    { id: p.id, comissao_paga: true, comissao_paga_em: d.toISOString() },
+                                    { onSuccess: () => { done++; if (done === selected.length) { toast.success(`${selected.length} comissões pagas!`); setSelectedTedPedidos(new Set()); } } }
+                                  );
+                                }
+                              }}
+                              initialFocus
+                              className={cn("p-3 pointer-events-auto")}
+                            />
+                            <div className="p-2 border-t">
+                              <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => {
+                                const d = new Date();
+                                let done = 0;
+                                const unpaid = selected.filter(p => !p.comissao_paga);
+                                if (unpaid.length === 0) { toast.info("Todas já estão pagas"); return; }
+                                for (const p of unpaid) {
+                                  updatePedido.mutate(
+                                    { id: p.id, comissao_paga: true, comissao_paga_em: d.toISOString() },
+                                    { onSuccess: () => { done++; if (done === unpaid.length) { toast.success(`${unpaid.length} comissões pagas!`); setSelectedTedPedidos(new Set()); } } }
+                                  );
+                                }
+                              }}>
+                                Hoje
+                              </Button>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })() : (
+              <div className="text-xs text-muted-foreground">
+                Selecione pedidos para ver o resumo e agrupar TED / pagar comissões em lote
+              </div>
+            )}
 
             {/* Desktop table */}
             <Card className="overflow-hidden hidden sm:block">
