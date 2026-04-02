@@ -216,10 +216,66 @@ export default function Financeiro() {
   const comTotalBruto = comissoesTodas.reduce((s, p) => s + Number(p.valor_bruto), 0);
   const comTotalFrete = comissoesTodas.reduce((s, p) => s + Number(p.frete), 0);
   const comTotalTaxa = comissoesTodas.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
+  const comTotalTed = comissoesTodas.reduce((s, p) => s + Number(p.taxa_ted), 0);
   const comTotalLiquido = comissoesTodas.reduce((s, p) => s + Number(p.valor_liquido), 0);
   const comTotalComissao = comissoesTodas.reduce((s, p) => s + Number(p.comissao), 0);
   const comTotalPago = comissoesTodas.filter(p => p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
   const comTotalPendente = comissoesTodas.filter(p => !p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
+
+  const toggleTedSelect = (id: string) => {
+    setSelectedTedPedidos(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAgruparTed = () => {
+    if (selectedTedPedidos.size < 2) {
+      toast.error("Selecione pelo menos 2 pedidos para agrupar o TED");
+      return;
+    }
+    const selected = comissoesTodas.filter(p => selectedTedPedidos.has(p.id));
+    // Sum all TED fees from selected, then redistribute equally
+    const totalTed = selected.reduce((s, p) => s + Number(p.taxa_ted), 0);
+    const tedPerPedido = Math.round((totalTed / selected.length) * 100) / 100;
+    
+    // Actually the idea is: they share ONE TED fee (R$3.67 typically)
+    // So we set one TED fee split across all selected orders
+    const singleTed = 3.67; // default TED fee
+    const tedEach = Math.round((singleTed / selected.length) * 100) / 100;
+    
+    let completed = 0;
+    for (const p of selected) {
+      const valorBruto = Number(p.valor_bruto);
+      const frete = Number(p.frete);
+      const taxaPagarme = Number(p.taxa_pagarme);
+      const valorLiquido = valorBruto - frete - taxaPagarme - tedEach;
+      
+      // Recalculate commission
+      const vendedor = vendedores?.find(v => v.id === p.vendedor_id);
+      let comissao = 0;
+      if (vendedor) {
+        const taxaComissao = p.origem === "whatsapp" ? vendedor.taxa_comissao_whatsapp : vendedor.taxa_comissao_site;
+        const base = valorBruto - taxaPagarme - tedEach - frete;
+        comissao = base > 0 ? base * (taxaComissao / 100) : 0;
+      }
+      
+      updatePedido.mutate(
+        { id: p.id, taxa_ted: tedEach, valor_liquido: valorLiquido, comissao },
+        {
+          onSuccess: () => {
+            completed++;
+            if (completed === selected.length) {
+              toast.success(`TED único de R$ ${singleTed.toFixed(2)} dividido entre ${selected.length} pedidos (R$ ${tedEach.toFixed(2)} cada)`);
+              setSelectedTedPedidos(new Set());
+              setTedMode(false);
+            }
+          },
+        }
+      );
+    }
+  };
 
   const handlePagarComissao = (pedidoId: string, date: Date) => {
     updatePedido.mutate(
