@@ -122,6 +122,10 @@ export default function Financeiro() {
   const [editingComissao, setEditingComissao] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
+  // Multi-select TED grouping
+  const [selectedTedPedidos, setSelectedTedPedidos] = useState<Set<string>>(new Set());
+  const [tedMode, setTedMode] = useState(false);
+
   const pagarmeParams = pgFilterType === "mes"
     ? { year: pgYear, month: pgMonth }
     : { start_date: pgStartDate, end_date: pgEndDate };
