@@ -124,7 +124,6 @@ export default function Financeiro() {
 
   // Multi-select TED grouping
   const [selectedTedPedidos, setSelectedTedPedidos] = useState<Set<string>>(new Set());
-  const [tedMode, setTedMode] = useState(false);
 
   const pagarmeParams = pgFilterType === "mes"
     ? { year: pgYear, month: pgMonth }
@@ -269,7 +268,6 @@ export default function Financeiro() {
             if (completed === selected.length) {
               toast.success(`TED único de R$ ${singleTed.toFixed(2)} dividido entre ${selected.length} pedidos (R$ ${tedEach.toFixed(2)} cada)`);
               setSelectedTedPedidos(new Set());
-              setTedMode(false);
             }
           },
         }
@@ -514,22 +512,20 @@ export default function Financeiro() {
 
             {/* TED grouping toolbar */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                variant={tedMode ? "default" : "outline"}
-                size="sm"
-                onClick={() => { setTedMode(!tedMode); setSelectedTedPedidos(new Set()); }}
-              >
-                <Link className="h-3 w-3 mr-1" />
-                {tedMode ? "Cancelar Agrupamento" : "Agrupar TED"}
-              </Button>
-              {tedMode && selectedTedPedidos.size > 0 && (
-                <Button size="sm" onClick={handleAgruparTed}>
-                  Aplicar TED único ({selectedTedPedidos.size} pedidos)
-                </Button>
+              {selectedTedPedidos.size > 0 && (
+                <>
+                  <Button size="sm" onClick={handleAgruparTed}>
+                    <Link className="h-3 w-3 mr-1" />
+                    Aplicar TED único ({selectedTedPedidos.size} pedidos)
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setSelectedTedPedidos(new Set())}>
+                    Limpar seleção
+                  </Button>
+                </>
               )}
-              {tedMode && (
-                <span className="text-xs text-muted-foreground">Selecione os pedidos que compartilham a mesma transferência TED</span>
-              )}
+              <span className="text-xs text-muted-foreground">
+                {selectedTedPedidos.size === 0 ? "Selecione pedidos para agrupar TED" : `${selectedTedPedidos.size} pedido(s) selecionado(s)`}
+              </span>
             </div>
 
             {/* Desktop table */}
@@ -538,8 +534,9 @@ export default function Financeiro() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      {tedMode && <TableHead className="w-10"></TableHead>}
+                      <TableHead className="w-10"></TableHead>
                       <TableHead>Pedido</TableHead>
+                      <TableHead>Data</TableHead>
                       <TableHead>Cliente</TableHead>
                       <TableHead>Vendedor</TableHead>
                       <TableHead className="text-right">Bruto</TableHead>
@@ -556,7 +553,7 @@ export default function Financeiro() {
                   </TableHeader>
                   <TableBody>
                     {comissoesTodas.length === 0 ? (
-                      <TableRow><TableCell colSpan={tedMode ? 15 : 14} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={15} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
                     ) : (
                       comissoesTodas.map((p) => {
                         const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
@@ -564,15 +561,14 @@ export default function Financeiro() {
                         const pct = getPercentual(p);
                         return (
                           <TableRow key={p.id} className={selectedTedPedidos.has(p.id) ? "bg-accent/50" : ""}>
-                            {tedMode && (
-                              <TableCell>
-                                <Checkbox
-                                  checked={selectedTedPedidos.has(p.id)}
-                                  onCheckedChange={() => toggleTedSelect(p.id)}
-                                />
-                              </TableCell>
-                            )}
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedTedPedidos.has(p.id)}
+                                onCheckedChange={() => toggleTedSelect(p.id)}
+                              />
+                            </TableCell>
                             <TableCell className="font-medium">#{p.numero_pedido}</TableCell>
+                            <TableCell className="text-xs">{format(new Date(p.data_pedido), "dd/MM/yy")}</TableCell>
                             <TableCell>{p.cliente_nome}</TableCell>
                             <TableCell>{vendedorItem?.nome || "—"}</TableCell>
                             <TableCell className="text-right text-xs">{formatCurrency(Number(p.valor_bruto))}</TableCell>
@@ -673,12 +669,10 @@ export default function Financeiro() {
                   <Card key={p.id} className={cn("p-3 space-y-2", selectedTedPedidos.has(p.id) && "ring-2 ring-primary")}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        {tedMode && (
-                          <Checkbox
-                            checked={selectedTedPedidos.has(p.id)}
-                            onCheckedChange={() => toggleTedSelect(p.id)}
-                          />
-                        )}
+                        <Checkbox
+                          checked={selectedTedPedidos.has(p.id)}
+                          onCheckedChange={() => toggleTedSelect(p.id)}
+                        />
                         <span className="font-medium text-sm">#{p.numero_pedido}</span>
                       </div>
                       <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-[10px] cursor-pointer"
@@ -688,6 +682,7 @@ export default function Financeiro() {
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
+                    <p className="text-[10px] text-muted-foreground">Data: {format(new Date(p.data_pedido), "dd/MM/yyyy")}</p>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                       <span>Bruto: <span className="text-foreground font-medium">{formatCurrency(Number(p.valor_bruto))}</span></span>
                       <span>Frete: <span className="text-foreground font-medium">{formatCurrency(Number(p.frete))}</span></span>
