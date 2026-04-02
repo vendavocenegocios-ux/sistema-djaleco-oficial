@@ -514,22 +514,20 @@ export default function Financeiro() {
 
             {/* TED grouping toolbar */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                variant={tedMode ? "default" : "outline"}
-                size="sm"
-                onClick={() => { setTedMode(!tedMode); setSelectedTedPedidos(new Set()); }}
-              >
-                <Link className="h-3 w-3 mr-1" />
-                {tedMode ? "Cancelar Agrupamento" : "Agrupar TED"}
-              </Button>
-              {tedMode && selectedTedPedidos.size > 0 && (
-                <Button size="sm" onClick={handleAgruparTed}>
-                  Aplicar TED único ({selectedTedPedidos.size} pedidos)
-                </Button>
+              {selectedTedPedidos.size > 0 && (
+                <>
+                  <Button size="sm" onClick={handleAgruparTed}>
+                    <Link className="h-3 w-3 mr-1" />
+                    Aplicar TED único ({selectedTedPedidos.size} pedidos)
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setSelectedTedPedidos(new Set())}>
+                    Limpar seleção
+                  </Button>
+                </>
               )}
-              {tedMode && (
-                <span className="text-xs text-muted-foreground">Selecione os pedidos que compartilham a mesma transferência TED</span>
-              )}
+              <span className="text-xs text-muted-foreground">
+                {selectedTedPedidos.size === 0 ? "Selecione pedidos para agrupar TED" : `${selectedTedPedidos.size} pedido(s) selecionado(s)`}
+              </span>
             </div>
 
             {/* Desktop table */}
