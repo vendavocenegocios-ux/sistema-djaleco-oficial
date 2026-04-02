@@ -671,12 +671,10 @@ export default function Financeiro() {
                   <Card key={p.id} className={cn("p-3 space-y-2", selectedTedPedidos.has(p.id) && "ring-2 ring-primary")}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        {tedMode && (
-                          <Checkbox
-                            checked={selectedTedPedidos.has(p.id)}
-                            onCheckedChange={() => toggleTedSelect(p.id)}
-                          />
-                        )}
+                        <Checkbox
+                          checked={selectedTedPedidos.has(p.id)}
+                          onCheckedChange={() => toggleTedSelect(p.id)}
+                        />
                         <span className="font-medium text-sm">#{p.numero_pedido}</span>
                       </div>
                       <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-[10px] cursor-pointer"
@@ -686,6 +684,7 @@ export default function Financeiro() {
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
+                    <p className="text-[10px] text-muted-foreground">Data: {format(new Date(p.data_pedido), "dd/MM/yyyy")}</p>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                       <span>Bruto: <span className="text-foreground font-medium">{formatCurrency(Number(p.valor_bruto))}</span></span>
                       <span>Frete: <span className="text-foreground font-medium">{formatCurrency(Number(p.frete))}</span></span>
